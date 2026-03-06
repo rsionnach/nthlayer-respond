@@ -20,10 +20,6 @@ Mayday follows [Zero Framework Cognition](ZFC.md) as its core architectural prin
 
 Use the GitHub issue templates for [bug reports](.github/ISSUE_TEMPLATE/bug_report.md) and [feature requests](.github/ISSUE_TEMPLATE/feature_request.md).
 
-## Finding Work
-
-Tasks for Mayday may be posted on the [Wasteland Wanted Board](https://wasteland.gastownhall.ai/). Check there for open items that need contributors.
-
 ## Code of Conduct
 
 Be kind, be constructive, and assume good intent. We're building tools to make systems more reliable, and that starts with how we treat each other.

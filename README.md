@@ -15,8 +15,6 @@ This project is in the architecture phase. The design is documented below, and i
 
 ## Alert Flow
 
-This is a critical architectural decision. Alerts flow into the ecosystem first, and PagerDuty is downstream of Mayday, not upstream:
-
 ```
 Alert Source (Arbiter quality breach / Prometheus alert / any webhook)
        │
@@ -258,7 +256,7 @@ Mayday is in the architecture phase. The design documented here reflects the tar
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. Tasks may also be posted on the [Wasteland Wanted Board](https://wasteland.gastownhall.ai/).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
