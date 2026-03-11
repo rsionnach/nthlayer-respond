@@ -210,31 +210,40 @@ Mayday is one component in the OpenSRM ecosystem. Each component solves a comple
          │+cost     │ │          │ │          │ │          │
          └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
               │             │             │             │
-              └──────┬──────┴──────┬──────┘             │
-                     ▼             ▼                    ▼
-              ┌────────────────────────────┐  ┌──────────────┐
-              │  Streaming / Queue Layer   │  │  Consumes    │
-              │  (Kafka / NATS / etc)      │  │  all three   │
-              └──────────┬─────────────────┘  └──────┬───────┘
-                         ▼                           │
-              ┌────────────────────────┐             │
-              │   OTel Collector /     │             │
-              │   Prometheus / etc     │             │
-              └────────────────────────┘             │
-                                                     │
-              ┌──────────────────────────────────────┘
-              │  Learning loop (post-incident):
-              │  Mayday findings → manifest updates
-              │  → NthLayer regenerates → Arbiter
-              │  refines → SitRep improves
-              └──────────────────────────────────────▶ OpenSRM
+              └─────────────┴──────┬──────┴─────────────┘
+                                   ▼
+                     ┌──────────────────────────┐
+                     │      Verdict Store       │
+                     │  (shared data substrate) │
+                     │ create · resolve · link  │
+                     │ accuracy · gaming-check  │
+                     └────────────┬─────────────┘
+                                  │ OTel side-effects
+                                  ▼
+                     ┌──────────────────────────┐
+                     │    OTel Collector /      │
+                     │   Prometheus / Grafana   │
+                     └──────────────────────────┘
+
+              Learning loop (post-incident):
+              Mayday findings → manifest updates
+              → NthLayer regenerates → Arbiter
+              refines → SitRep improves → OpenSRM
 ```
 
-Each component works alone. Someone who just needs incident response coordination adopts Mayday without needing NthLayer, the Arbiter, or SitRep (though SitRep's correlated snapshots significantly enrich Mayday's context).
+**How Mayday fits in:**
+
+- Mayday consumes **SitRep's correlation verdicts** (with confidence scores and lineage) as starting context for every incident, so agents begin with a correlated picture rather than raw signals
+- Each Mayday agent emits its own **verdicts** (triage, investigation, communication, remediation) linked via lineage to the SitRep verdicts that informed them — one human override at any point calibrates every component upstream
+- The **Arbiter** monitors Mayday's agent judgment SLOs and adjusts autonomy via the one-way safety ratchet
+- **NthLayer** provides topology exports and deployment gate status, and consumes post-incident findings as rule refinements
+
+Each component works alone. Someone who just needs incident response coordination adopts Mayday without needing NthLayer, the Arbiter, or SitRep (though SitRep's correlated verdicts significantly enrich Mayday's context).
 
 | Component | What it does | Link |
 |-----------|-------------|------|
 | **OpenSRM** | Specification for declaring service reliability requirements | [opensrm](https://github.com/rsionnach/opensrm) |
+| **Verdict** | Data primitive for recording AI judgments and measuring correctness | [verdicts](https://github.com/rsionnach/verdicts) |
 | **Arbiter** | Quality measurement and governance for AI agents | [arbiter](https://github.com/rsionnach/arbiter) |
 | **NthLayer** | Generate monitoring infrastructure from manifests | [nthlayer](https://github.com/rsionnach/nthlayer) |
 | **SitRep** | Situational awareness through signal correlation | [sitrep](https://github.com/rsionnach/sitrep) |
