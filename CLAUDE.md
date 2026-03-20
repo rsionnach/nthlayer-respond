@@ -15,11 +15,13 @@ Multi-agent incident response system coordinated by AI. Agents collaborate to tr
 
 ## Build Commands
 
-- **Install verdict library (prerequisite):** `pip install -e ../verdicts/lib/python`
+- **Install dependencies (including verdict library):** `uv sync --extra dev`
 - **Run tests:** `uv run --extra dev pytest tests/ -v`
 - **Run single test file:** `uv run --extra dev pytest tests/test_types.py -v`
-- **Run CLI:** `uv run --extra dev mayday serve | status | replay`
+- **Run CLI:** `uv run --extra dev mayday <serve|status|replay|approve|reject|resume>`
 - **Replay scenario:** `uv run --extra dev mayday replay --scenario scenarios/synthetic/cascading-failure.yaml --no-model`
+- **Resume crashed incident:** `uv run --extra dev mayday resume <incident_id>`
+- **Approve/reject remediation:** `uv run --extra dev mayday approve <incident_id>` / `mayday reject <incident_id> --reason <reason>`
 - **TDD workflow:** write failing test → implement → `uv run --extra dev pytest` verify pass → commit
 <!-- END AUTO-MANAGED -->
 
@@ -27,6 +29,20 @@ Multi-agent incident response system coordinated by AI. Agents collaborate to tr
 ## Architecture
 
 Follows [Zero Framework Cognition](ZFC.md): the orchestrator is pure transport; agents provide judgment.
+
+**Source layout (`src/mayday/`):**
+- `cli.py` — 6 subcommands: serve, status, replay, approve, reject, resume
+- `coordinator.py` — deterministic state machine; sequences agent pipeline; persists IncidentContext to SQLite
+- `types.py` — IncidentContext, TriageResult, InvestigationResult, RemediationResult, CommunicationResult, Hypothesis
+- `config.py` — MaydayConfig, load_config
+- `context_store.py` — SQLiteContextStore (crash recovery persistence)
+- `agents/base.py` — AgentBase ABC; transport layer (model calls, verdict emission, governance HTTP)
+- `agents/triage.py`, `investigation.py`, `remediation.py`, `communication.py` — concrete agents
+- `safe_actions/registry.py` — SafeActionRegistry (closed callable registry, cooldown tracking)
+- `safe_actions/actions.py` — register_builtin_actions (rollback, scale_up, disable_feature_flag, reduce_autonomy)
+
+**Scenario fixtures (`scenarios/synthetic/`):**
+8 YAML replay fixtures: cascading-failure, autonomy-reduction, crash-recovery, human-override, low-confidence-escalation, model-unavailable, remediation-approval, sitrep-unavailable. Each has `mock_responses` keyed by: triage, investigation, communication_initial, remediation, communication_resolution.
 
 **Orchestrator** (deterministic state machine, not an agent):
 - Receives incident trigger, creates shared context, sequences agent pipeline, routes messages
@@ -37,7 +53,7 @@ Follows [Zero Framework Cognition](ZFC.md): the orchestrator is pure transport; 
 2. Investigation + Communication (parallel)
 3. Remediation + Communication update (after root cause found)
 
-**Shared Incident Context** — single accumulating YAML object all agents read/write:
+**Shared Incident Context** — single accumulating object all agents read/write:
 - `triage`: severity, blast_radius, affected_slos, assigned_teams
 - `investigation`: hypotheses (with confidence scores), root_cause
 - `communication`: updates_sent (channel, timestamp, type)
@@ -80,11 +96,11 @@ Alert Source (Arbiter quality breach / Prometheus alert / any webhook)
 - Cooldown and blast radius checks built into the registry
 
 **Autonomy reduction (first-class concept):**
-- When an AI agent's model update causes a quality breach, the remediation agent (or triage agent in critical cases) can request the Arbiter to reduce that agent's autonomy
-- `reduce_autonomy` is a built-in safe action in the registry, targeting the Arbiter's governance API
+- When an AI agent's model update causes a quality breach, the remediation agent (or triage agent) can request the Arbiter to reduce that agent's autonomy
+- `reduce_autonomy` is a built-in safe action in the registry, targeting `POST {arbiter_url}/api/v1/governance/reduce`
 - Unlike other safe actions (which target infrastructure), this targets another ecosystem component
 - The Arbiter's one-way safety ratchet means reduction always succeeds; restoration requires a separate human action
-- Trigger condition in triage: change_candidate is `agent_model_update` AND severity <= P2
+- Trigger condition in TriageAgent._post_execute: any trigger verdict has tag `"agent_model_update"` AND `result.severity <= 2`
 
 **Approval ratchet:**
 - The model can escalate approval requirements (request human sign-off) but never downgrade them
@@ -96,30 +112,34 @@ Alert Source (Arbiter quality breach / Prometheus alert / any webhook)
 - Coordinator resumes from `last_completed_step_index` (int, not AgentRole — disambiguates parallel steps)
 - Testable with mock agents (no model required)
 
+**AgentBase transport layer (all agents inherit):**
+- `_call_model`: lazy Anthropic client init, `asyncio.to_thread` for blocking SDK call, `asyncio.wait_for` timeout
+- `_emit_verdict`: sets `subject.type=role.value`, wires `lineage.context` from `context.trigger_verdict_ids`, chains `lineage.parent` from `context.verdict_chain[-1]`
+- `_degraded_verdict`: emits `confidence=0.0`, `action="escalate"`, tags `["degraded","human-takeover-required"]` when model fails
+- `_parse_json`: strips markdown fences and preamble before parsing; handles `{...}` extraction from noisy model output
+- `_request_autonomy_reduction`: stdlib `urllib`, 3 retries, POST to Arbiter governance endpoint
+
+**Two-phase communication:**
+- Phase 1 (called when `context.remediation is None`): drafts initial status update
+- Phase 2 (called after remediation): drafts resolution update; APPENDS to Phase 1's `updates_sent` — never replaces
+
 **Post-incident learning loop:**
 - Manifest updates (tighter SLO targets, new dependency declarations, new safe action definitions)
 - NthLayer alerting rule refinements from quality patterns
 - Arbiter judgment SLO threshold revisions from historical data
 - SitRep correlation improvements from past incident accuracy
-
-**Implementation phases (Phase 3):**
-- 3.1: Coordinator + crash recovery (state machine, IncidentContext persistence, mock-agent testable)
-- 3.2: Agent base class + Triage Agent (verdict emission with lineage)
-- 3.3: Investigation Agent (hypothesis generation, `subject.type="investigation"`)
-- 3.4: Safe Action Registry + Remediation Agent (closed condition registry)
-- 3.5: Communication Agent + human input + post-incident verdict resolution
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: verdict-integration -->
 ## Verdict Integration
 
-Mayday is designed to produce verdicts for every agent judgment and consume SitRep's correlation verdicts as input (see `verdicts/` and `VERDICT-INTEGRATION.md`). Integration is planned but not yet implemented.
+All agents produce verdicts via `AgentBase._emit_verdict`. Consuming SitRep correlation verdicts as trigger input is implemented (TriageAgent and InvestigationAgent read from `context.trigger_verdict_ids`). See `verdicts/` and `VERDICT-INTEGRATION.md`.
 
-**Install:** `pip install -e ../verdicts` (path-based dependency; verdict API is frozen after Phase 0)
+**Install:** verdict is a path dependency managed via `uv.sources` (`uv sync` installs it automatically from `../verdicts/lib/python`)
 
 **Shared store:** single `verdicts.db` with WAL mode — NOT a per-component store. All ecosystem components read/write the same file.
 
-**Consuming SitRep verdicts (planned):**
+**Consuming SitRep verdicts (implemented — Triage and Investigation agents read trigger_verdict_ids):**
 ```python
 sitrep_verdicts = verdict_store.query(VerdictFilter(
     producer_system="sitrep", subject_type="correlation",
@@ -128,10 +148,10 @@ sitrep_verdicts = verdict_store.query(VerdictFilter(
 # verdicts provide: timestamp (staleness), confidence (trust level), lineage (provenance)
 ```
 
-**Producing verdicts per agent role (planned):**
+**Verdicts produced per agent role (implemented):**
 - Triage Agent → `subject.type: "triage"` verdict (severity, blast radius)
 - Investigation Agent → `subject.type: "investigation"` verdict (hypotheses, root cause)
-- Communication Agent → `subject.type: "communication"` verdict (status update content) — requires `"communication"` added to `VALID_SUBJECT_TYPES` in Phase 0.2
+- Communication Agent → `subject.type: "communication"` verdict (status update content)
 - Remediation Agent → `subject.type: "remediation"` verdict (proposed fix, rollback decision)
 - `"escalation"` and `"incident_summary"` types map to `"custom"` with `metadata.custom["incident_type"]`
 
