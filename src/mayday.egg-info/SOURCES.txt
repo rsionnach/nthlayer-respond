@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+src/mayday/__init__.py
+src/mayday/__main__.py
+src/mayday.egg-info/PKG-INFO
+src/mayday.egg-info/SOURCES.txt
+src/mayday.egg-info/dependency_links.txt
+src/mayday.egg-info/entry_points.txt
+src/mayday.egg-info/requires.txt
+src/mayday.egg-info/top_level.txt
+tests/test_types.py

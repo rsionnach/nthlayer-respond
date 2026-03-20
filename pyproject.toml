@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mayday"
+version = "0.1.0a1"
+description = "Mayday — Multi-agent incident response for the OpenSRM ecosystem"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "pyyaml>=6.0.1",
+    "structlog>=24.1",
+    "anthropic>=0.39",
+    "verdict",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+mayday = "mayday.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.uv.sources]
+verdict = { path = "../verdicts/lib/python" }

@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: mayday
+Version: 0.1.0a1
+Summary: Mayday — Multi-agent incident response for the OpenSRM ecosystem
+License: Apache-2.0
+Requires-Python: >=3.11
+License-File: LICENSE
+Requires-Dist: pyyaml>=6.0.1
+Requires-Dist: structlog>=24.1
+Requires-Dist: anthropic>=0.39
+Requires-Dist: verdict
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+Dynamic: license-file
