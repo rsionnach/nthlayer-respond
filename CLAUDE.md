@@ -5,7 +5,11 @@
 
 Multi-agent incident response system coordinated by AI. Agents collaborate to triage, investigate, communicate, and remediate incidents under human supervision. Mayday owns the incident lifecycle; PagerDuty, Slack, and email are notification channels it uses, not upstream incident sources.
 
-- Status: architecture phase only — implementation has not started
+- Status: architecture phase only — implementation begins in Phase 3 (after Phases 0-2 complete)
+- Beads epic: mayday-bel
+- Depends on: sitrep-5yh completion (Phase 2 SitRep implementation)
+- Demo milestone: Demo 3 "The Full Chain" — SitRep correlation verdicts feed Mayday pipeline, verdict lineage chain complete
+- Accept criteria: `mayday replay --scenario scenarios/synthetic/cascading-failure.yaml` produces expected verdicts with full lineage
 - License: Apache 2.0
 - Contributing: see CONTRIBUTING.md
 <!-- END AUTO-MANAGED -->
@@ -52,17 +56,77 @@ Alert Source (Arbiter quality breach / Prometheus alert / any webhook)
 <!-- AUTO-MANAGED: patterns -->
 ## Key Design Patterns
 
+**ZFC transport/judgment split for Mayday:**
+- Transport (code): receiving alerts, sequencing agent execution, routing messages, persisting incident context
+- Judgment (model): triaging severity, forming hypotheses, assessing risk, drafting communications
+
 **Human-in-the-loop:**
 - Agents never take destructive action without human approval unless the action is pre-approved as safe in the OpenSRM manifest
-- Every agent decision emits OTel telemetry
 - Every human override feeds back into that agent's judgment SLO
 - Arbiter uses a one-way safety ratchet: can reduce agent autonomy but cannot increase it without human approval
+
+**Safe action conditions — closed registry, not expression language:**
+- Each condition is a registered callable (named function)
+- Unknown condition names fail at startup — no runtime eval of arbitrary expressions
+- Cooldown and blast radius checks built into the registry
+
+**Crash recovery:**
+- `IncidentContext` serialised to SQLite after each agent step
+- Coordinator resumes from last persisted step on restart
+- Testable with mock agents (no model required)
 
 **Post-incident learning loop:**
 - Manifest updates (tighter SLO targets, new dependency declarations, new safe action definitions)
 - NthLayer alerting rule refinements from quality patterns
 - Arbiter judgment SLO threshold revisions from historical data
 - SitRep correlation improvements from past incident accuracy
+
+**Implementation phases (Phase 3):**
+- 3.1: Coordinator + crash recovery (state machine, IncidentContext persistence, mock-agent testable)
+- 3.2: Agent base class + Triage Agent (verdict emission with lineage)
+- 3.3: Investigation Agent (hypothesis generation, `subject.type="investigation"`)
+- 3.4: Safe Action Registry + Remediation Agent (closed condition registry)
+- 3.5: Communication Agent + human input + post-incident verdict resolution
+<!-- END AUTO-MANAGED -->
+
+<!-- AUTO-MANAGED: verdict-integration -->
+## Verdict Integration
+
+Mayday is designed to produce verdicts for every agent judgment and consume SitRep's correlation verdicts as input (see `verdicts/` and `VERDICT-INTEGRATION.md`). Integration is planned but not yet implemented.
+
+**Install:** `pip install -e ../verdicts` (path-based dependency; verdict API is frozen after Phase 0)
+
+**Shared store:** single `verdicts.db` with WAL mode — NOT a per-component store. All ecosystem components read/write the same file.
+
+**Consuming SitRep verdicts (planned):**
+```python
+sitrep_verdicts = verdict_store.query(VerdictFilter(
+    producer_system="sitrep", subject_type="correlation",
+    from_time=last_30_minutes, limit=0,
+))
+# verdicts provide: timestamp (staleness), confidence (trust level), lineage (provenance)
+```
+
+**Producing verdicts per agent role (planned):**
+- Triage Agent → `subject.type: "triage"` verdict (severity, blast radius)
+- Investigation Agent → `subject.type: "investigation"` verdict (hypotheses, root cause)
+- Communication Agent → `subject.type: "communication"` verdict (status update content) — requires `"communication"` added to `VALID_SUBJECT_TYPES` in Phase 0.2
+- Remediation Agent → `subject.type: "remediation"` verdict (proposed fix, rollback decision)
+- `"escalation"` and `"incident_summary"` types map to `"custom"` with `metadata.custom["incident_type"]`
+
+All Mayday verdicts include `lineage.context = [sitrep_verdict.id, ...]` linking to the SitRep verdicts that informed them.
+
+**Lineage chain:** SitRep correlation verdicts → Mayday triage verdict → investigation verdict → remediation verdict → human override verdict. One human override at any point calibrates every component upstream via lineage traversal.
+
+**Degraded mode:** Agents still produce verdicts with `confidence: 0.0` and a note in `reasoning` when operating on stale SitRep data or without model access.
+
+**Verdict config:**
+```yaml
+verdict:
+  store:
+    backend: sqlite
+    path: verdicts.db
+```
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: git-insights -->
@@ -81,6 +145,7 @@ Alert Source (Arbiter quality breach / Prometheus alert / any webhook)
 
 **OpenSRM ecosystem** (each component works standalone, composes via shared manifests + OTel):
 - [OpenSRM](https://github.com/rsionnach/opensrm) — service reliability specification
+- [Verdict](../verdicts/) — data primitive; Mayday consumes SitRep's verdicts and produces its own per agent role
 - [Arbiter](https://github.com/rsionnach/arbiter) — quality measurement and AI agent governance
 - [NthLayer](https://github.com/rsionnach/nthlayer) — generate monitoring infrastructure from manifests
 - [SitRep](https://github.com/rsionnach/sitrep) — situational awareness through signal correlation
