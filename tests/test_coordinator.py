@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from nthlayer_learn import MemoryStore, create as verdict_create
+from nthlayer_learn import create as verdict_create
 
 from nthlayer_respond.coordinator import Coordinator, PIPELINE
 from nthlayer_respond.context_store import SQLiteContextStore

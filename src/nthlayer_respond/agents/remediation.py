@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 from nthlayer_respond.agents.base import AgentBase
 from nthlayer_respond.safe_actions.registry import SafeActionRegistry

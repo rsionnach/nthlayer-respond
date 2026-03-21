@@ -3,7 +3,7 @@
 import json
 import pytest
 from unittest.mock import AsyncMock, patch
-from nthlayer_learn import MemoryStore, create as verdict_create
+from nthlayer_learn import create as verdict_create
 
 from nthlayer_respond.agents.triage import TriageAgent
 from nthlayer_respond.types import AgentRole, IncidentContext, IncidentState

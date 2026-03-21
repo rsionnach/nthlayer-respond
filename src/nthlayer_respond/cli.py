@@ -280,7 +280,7 @@ async def replay_command(
         else:
             # Real SitRep integration
             try:
-                from nthlayer_correlate.replay import load_sitrep_scenario  # type: ignore[import]
+                from nthlayer_correlate.replay import load_sitrep_scenario  # type: ignore[import]  # noqa: F401
 
                 # Would run SitRep replay here
                 print(

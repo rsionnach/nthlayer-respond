@@ -1,5 +1,4 @@
 """Tests for context store."""
-import json
 import pytest
 from nthlayer_respond.context_store import SQLiteContextStore
 from nthlayer_respond.types import IncidentContext, IncidentState, TriageResult

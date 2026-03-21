@@ -3,7 +3,6 @@
 import json
 import pytest
 from unittest.mock import AsyncMock, patch
-from nthlayer_learn import MemoryStore, create as verdict_create
 
 from nthlayer_respond.agents.base import AgentBase
 from nthlayer_respond.types import (

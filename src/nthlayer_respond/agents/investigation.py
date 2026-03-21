@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from nthlayer_respond.agents.base import AgentBase
 from nthlayer_respond.types import (

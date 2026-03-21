@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from nthlayer_learn import MemoryStore
 
 from nthlayer_respond.agents.remediation import RemediationAgent
-from nthlayer_respond.safe_actions.registry import SafeAction, SafeActionRegistry
+from nthlayer_respond.safe_actions.registry import SafeActionRegistry
 from nthlayer_respond.safe_actions.actions import register_builtin_actions
 from nthlayer_respond.types import (
     AgentRole,
