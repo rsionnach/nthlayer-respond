@@ -3,7 +3,7 @@ scenario:
   description: "Remediation proposes rollback requiring human approval"
   trigger:
     source: sitrep
-    sitrep_scenario: "../../sitrep/scenarios/synthetic/cascading-failure.yaml"
+    sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/cascading-failure.yaml"
   mock_responses:
     triage:
       severity: 1

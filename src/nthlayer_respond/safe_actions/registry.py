@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-import logging
+import structlog
 import sqlite3
 import threading
 import time
@@ -13,7 +13,7 @@ from typing import Callable
 
 from nthlayer_respond.types import IncidentContext
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -90,7 +90,7 @@ class SafeActionRegistry:
     def register(self, action: SafeAction) -> None:
         """Register an action at startup."""
         self._actions[action.name] = action
-        logger.debug("Registered safe action: %s", action.name)
+        logger.debug("Registered safe action", action_name=action.name)
 
     def get(self, name: str) -> SafeAction:
         """Return the action by name; raises KeyError if not registered."""

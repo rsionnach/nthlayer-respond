@@ -107,7 +107,7 @@ class AgentBase(ABC):
                 "summary": subject_summary,
             },
             judgment=judgment,
-            producer={"system": "mayday", "model": self._model},
+            producer={"system": "nthlayer-respond", "model": self._model},
         )
 
         # Wire lineage
@@ -188,18 +188,29 @@ class AgentBase(ABC):
         fenced = re.sub(r"^```(?:json)?\s*", "", text)
         fenced = re.sub(r"\s*```$", "", fenced).strip()
 
-        # Find the first '{' in whatever remains
+        # Find a valid JSON object by matching braces
         brace_index = fenced.find("{")
         if brace_index == -1:
             raise ValueError(f"No JSON object found in response: {response!r}")
 
-        candidate = fenced[brace_index:]
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Failed to parse JSON from response: {exc}"
-            ) from exc
+        # Try progressively from each '{' to find valid JSON
+        for start in range(brace_index, len(fenced)):
+            if fenced[start] != "{":
+                continue
+            depth = 0
+            for end in range(start, len(fenced)):
+                if fenced[end] == "{":
+                    depth += 1
+                elif fenced[end] == "}":
+                    depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(fenced[start:end + 1])
+                    except json.JSONDecodeError:
+                        break  # try next '{'
+                    break
+
+        raise ValueError(f"Failed to parse JSON from response: {response!r}")
 
     # ------------------------------------------------------------------ #
     # Template method                                                      #
@@ -216,11 +227,12 @@ class AgentBase(ABC):
             response = await self._call_model(system, user)
             result = self.parse_response(response, context)
             context = self._apply_result(context, result)
+            confidence = getattr(result, "root_cause_confidence", None) or getattr(result, "confidence", 0.5)
             self._emit_verdict(
                 context,
                 subject_summary=f"{self.role.value} assessment",
                 action="flag",
-                confidence=0.5,
+                confidence=confidence,
                 reasoning=getattr(result, "reasoning", ""),
             )
             context = await self._post_execute(context, result)

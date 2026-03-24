@@ -3,7 +3,7 @@ scenario:
   description: "Anthropic API down - all agents degrade gracefully"
   trigger:
     source: sitrep
-    sitrep_scenario: "../../sitrep/scenarios/synthetic/cascading-failure.yaml"
+    sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/cascading-failure.yaml"
   mock_responses:
     triage: null
     investigation: null

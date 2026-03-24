@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import logging
+import structlog
 
 from nthlayer_respond.agents.base import AgentBase
 from nthlayer_respond.safe_actions.registry import SafeActionRegistry
@@ -13,7 +13,7 @@ from nthlayer_respond.types import (
     RemediationResult,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class RemediationAgent(AgentBase):
@@ -136,7 +136,7 @@ class RemediationAgent(AgentBase):
         )
 
         # Stash autonomy_reduction on the result for use in _post_execute
-        result._autonomy_reduction = autonomy_reduction  # type: ignore[attr-defined]
+        result.autonomy_reduction = autonomy_reduction
 
         return result
 
@@ -172,10 +172,10 @@ class RemediationAgent(AgentBase):
                 result.execution_result = str(exc)
 
         # Step 2: Autonomy reduction (if recommended by model)
-        autonomy_reduction: dict = getattr(result, "_autonomy_reduction", {}) or {}
+        autonomy_reduction: dict = result.autonomy_reduction or {}
         if autonomy_reduction.get("recommended"):
             target_agent: str = autonomy_reduction.get("target_agent", "")
-            arbiter_url: str = autonomy_reduction.get("arbiter_url", "")
+            arbiter_url: str = self._config.get("arbiter_url", "")
             reason: str = autonomy_reduction.get("reason", "")
 
             try:

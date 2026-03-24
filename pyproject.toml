@@ -33,4 +33,4 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.uv.sources]
-nthlayer-learn = { path = "../verdicts/lib/python" }
+nthlayer-learn = { path = "../nthlayer-learn/lib/python" }

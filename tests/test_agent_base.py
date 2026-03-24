@@ -65,7 +65,7 @@ def test_emit_verdict_creates_verdict(stub_agent, verdict_store, triggered_conte
         reasoning="test reasoning",
     )
     assert v.subject.type == "triage"
-    assert v.producer.system == "mayday"
+    assert v.producer.system == "nthlayer-respond"
     assert v.judgment.action == "flag"
     assert v.judgment.confidence == 0.8
     assert v.lineage.context == ["vrd-trigger-001"]

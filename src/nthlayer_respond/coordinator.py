@@ -135,7 +135,7 @@ class Coordinator:
                     "confidence": 1.0,
                     "reasoning": f"Human approved {action} on {target}",
                 },
-                producer={"system": "mayday", "instance": "coordinator"},
+                producer={"system": "nthlayer-respond", "instance": "coordinator"},
             )
             self._verdict_store.put(v)
             context.verdict_chain.append(v.id)
@@ -160,7 +160,7 @@ class Coordinator:
                     "confidence": 0.0,
                     "reasoning": f"Approved action failed: {exc}",
                 },
-                producer={"system": "mayday", "instance": "coordinator"},
+                producer={"system": "nthlayer-respond", "instance": "coordinator"},
             )
             self._verdict_store.put(v)
             context.verdict_chain.append(v.id)

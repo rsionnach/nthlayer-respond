@@ -1,5 +1,5 @@
 # src/nthlayer_respond/config.py
-"""Mayday configuration."""
+"""nthlayer-respond configuration."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ logger = structlog.get_logger()
 
 
 @dataclass
-class MaydayConfig:
+class RespondConfig:
     # Coordinator
     poll_interval_seconds: int = 30
     escalation_threshold: float = 0.3
@@ -28,19 +28,19 @@ class MaydayConfig:
     arbiter_url: str = "http://localhost:8080"
     # Stores
     verdict_store_path: str = "verdicts.db"
-    context_store_path: str = "mayday-incidents.db"
+    context_store_path: str = "respond-incidents.db"
     # Topology
     manifests_dir: str | None = None
 
 
-def load_config(path: str) -> MaydayConfig:
+def load_config(path: str) -> RespondConfig:
     """Load config from YAML file. Returns defaults if file missing."""
     try:
         with open(path) as f:
             data = yaml.safe_load(f) or {}
     except FileNotFoundError:
         logger.info("config_not_found", path=path)
-        return MaydayConfig()
+        return RespondConfig()
 
     coord = data.get("coordinator", {})
     agents = data.get("agents", {})
@@ -49,9 +49,16 @@ def load_config(path: str) -> MaydayConfig:
     ctx_store = data.get("context_store", {})
     topo = data.get("topology", {})
 
-    return MaydayConfig(
-        poll_interval_seconds=coord.get("poll_interval_seconds", 30),
-        escalation_threshold=coord.get("escalation_threshold", 0.3),
+    poll_interval = coord.get("poll_interval_seconds", 30)
+    escalation_thresh = coord.get("escalation_threshold", 0.3)
+    if not isinstance(poll_interval, (int, float)) or poll_interval <= 0:
+        raise ValueError(f"poll_interval_seconds must be a positive number, got {poll_interval!r}")
+    if not isinstance(escalation_thresh, (int, float)) or not (0.0 <= escalation_thresh <= 1.0):
+        raise ValueError(f"escalation_threshold must be between 0.0 and 1.0, got {escalation_thresh!r}")
+
+    return RespondConfig(
+        poll_interval_seconds=int(poll_interval),
+        escalation_threshold=float(escalation_thresh),
         model=agents.get("model", "claude-sonnet-4-20250514"),
         max_tokens=agents.get("max_tokens", 4096),
         triage_timeout=agents.get("triage", {}).get("timeout", 15),
@@ -62,6 +69,6 @@ def load_config(path: str) -> MaydayConfig:
         cooldown_seconds=safe.get("cooldown_seconds", 300),
         arbiter_url=safe.get("arbiter_url", "http://localhost:8080"),
         verdict_store_path=verdict.get("path", "verdicts.db"),
-        context_store_path=ctx_store.get("path", "mayday-incidents.db"),
+        context_store_path=ctx_store.get("path", "respond-incidents.db"),
         manifests_dir=topo.get("manifests_dir"),
     )

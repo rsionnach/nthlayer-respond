@@ -3,7 +3,7 @@ scenario:
   description: "On-call rejects triage severity assessment"
   trigger:
     source: sitrep
-    sitrep_scenario: "../../sitrep/scenarios/synthetic/simple-causal-chain.yaml"
+    sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/simple-causal-chain.yaml"
   mock_responses:
     triage:
       severity: 3

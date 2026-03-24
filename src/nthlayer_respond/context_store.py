@@ -54,8 +54,8 @@ def _from_dict(data: dict) -> IncidentContext:
         investigation = InvestigationResult(
             hypotheses=hypotheses,
             root_cause=inv.get("root_cause"),
-            root_cause_confidence=inv["root_cause_confidence"],
-            reasoning=inv["reasoning"],
+            root_cause_confidence=inv.get("root_cause_confidence", 0.0),
+            reasoning=inv.get("reasoning", ""),
         )
 
     communication: CommunicationResult | None = None
@@ -72,13 +72,13 @@ def _from_dict(data: dict) -> IncidentContext:
         remediation = RemediationResult(**data["remediation"])
 
     return IncidentContext(
-        id=data["id"],
-        state=IncidentState(data["state"]),
-        created_at=data["created_at"],
-        updated_at=data["updated_at"],
-        trigger_source=data["trigger_source"],
-        trigger_verdict_ids=data["trigger_verdict_ids"],
-        topology=data["topology"],
+        id=data.get("id", "unknown"),
+        state=IncidentState(data.get("state", "created")),
+        created_at=data.get("created_at", ""),
+        updated_at=data.get("updated_at", ""),
+        trigger_source=data.get("trigger_source", ""),
+        trigger_verdict_ids=data.get("trigger_verdict_ids", []),
+        topology=data.get("topology", {}),
         triage=triage,
         investigation=investigation,
         communication=communication,
@@ -187,7 +187,13 @@ class SQLiteContextStore:
             "SELECT data FROM incidents ORDER BY updated_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        return [_from_dict(json.loads(row[0])) for row in rows]
+        results = []
+        for row in rows:
+            try:
+                results.append(_from_dict(json.loads(row[0])))
+            except (KeyError, ValueError, json.JSONDecodeError):
+                continue  # skip corrupted rows
+        return results
 
     # ------------------------------------------------------------------
     # Metadata key-value store

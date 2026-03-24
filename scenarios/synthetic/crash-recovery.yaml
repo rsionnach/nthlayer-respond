@@ -3,7 +3,7 @@ scenario:
   description: "Coordinator crashes after triage, resumes from investigation"
   trigger:
     source: sitrep
-    sitrep_scenario: "../../sitrep/scenarios/synthetic/cascading-failure.yaml"
+    sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/cascading-failure.yaml"
   crash_after_step: 0
   mock_responses:
     triage:
