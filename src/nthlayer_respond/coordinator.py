@@ -106,6 +106,10 @@ class Coordinator:
             )
 
         remediation = context.remediation
+        if remediation is None:
+            raise ValueError(
+                f"Incident {incident_id!r} has no remediation result to approve"
+            )
         action = remediation.proposed_action
         target = remediation.target
 

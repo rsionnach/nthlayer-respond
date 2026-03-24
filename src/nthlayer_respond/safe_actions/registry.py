@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -38,6 +39,10 @@ class SafeActionRegistry:
     def __init__(self, cooldown_store_path: str) -> None:
         self._actions: dict[str, SafeAction] = {}
         self._db_path = cooldown_store_path
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(cooldown_store_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._init_db()
 
     # ------------------------------------------------------------------ #
@@ -45,8 +50,8 @@ class SafeActionRegistry:
     # ------------------------------------------------------------------ #
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute(
+        with self._lock:
+            self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS cooldown_log (
                     action_name TEXT NOT NULL,
@@ -56,11 +61,11 @@ class SafeActionRegistry:
                 )
                 """
             )
-            conn.commit()
+            self._conn.commit()
 
     def _record_execution(self, name: str, target: str) -> None:
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute(
+        with self._lock:
+            self._conn.execute(
                 """
                 INSERT INTO cooldown_log (action_name, target, executed_at)
                 VALUES (?, ?, ?)
@@ -68,11 +73,11 @@ class SafeActionRegistry:
                 """,
                 (name, target, time.time()),
             )
-            conn.commit()
+            self._conn.commit()
 
     def _last_executed_at(self, name: str, target: str) -> float | None:
-        with sqlite3.connect(self._db_path) as conn:
-            row = conn.execute(
+        with self._lock:
+            row = self._conn.execute(
                 "SELECT executed_at FROM cooldown_log WHERE action_name=? AND target=?",
                 (name, target),
             ).fetchone()
