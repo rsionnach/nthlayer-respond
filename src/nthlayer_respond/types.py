@@ -83,6 +83,7 @@ class RemediationResult:
     previous_autonomy_level: str | None = None
     new_autonomy_level: str | None = None
     reasoning: str = ""
+    autonomy_reduction: dict | None = None
 
 
 @dataclass

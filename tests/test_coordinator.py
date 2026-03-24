@@ -317,7 +317,7 @@ async def test_escalation_check_triggers(
             "confidence": 0.1,
             "reasoning": "too uncertain",
         },
-        producer={"system": "mayday"},
+        producer={"system": "nthlayer-respond"},
     )
     verdict_store.put(v)
 
@@ -351,7 +351,7 @@ async def test_escalation_not_triggered_above_threshold(
             "confidence": 0.9,
             "reasoning": "confident escalation",
         },
-        producer={"system": "mayday"},
+        producer={"system": "nthlayer-respond"},
     )
     verdict_store.put(v)
 
@@ -490,7 +490,7 @@ async def test_reject_resolves_verdict(
             "confidence": 0.8,
             "reasoning": "rollback recommended",
         },
-        producer={"system": "mayday"},
+        producer={"system": "nthlayer-respond"},
     )
     verdict_store.put(v)
 
@@ -545,7 +545,7 @@ async def test_second_communication_skipped_when_escalated(
             "confidence": 0.1,
             "reasoning": "too risky",
         },
-        producer={"system": "mayday"},
+        producer={"system": "nthlayer-respond"},
     )
     verdict_store.put(v)
 

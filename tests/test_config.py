@@ -1,11 +1,11 @@
 # tests/test_config.py
-"""Tests for Mayday configuration."""
+"""Tests for nthlayer-respond configuration."""
 import textwrap
-from nthlayer_respond.config import MaydayConfig, load_config
+from nthlayer_respond.config import RespondConfig, load_config
 
 
 def test_default_config():
-    cfg = MaydayConfig()
+    cfg = RespondConfig()
     assert cfg.poll_interval_seconds == 30
     assert cfg.escalation_threshold == 0.3
     assert cfg.model == "claude-sonnet-4-20250514"
@@ -17,7 +17,7 @@ def test_default_config():
     assert cfg.cooldown_seconds == 300
     assert cfg.arbiter_url == "http://localhost:8080"
     assert cfg.verdict_store_path == "verdicts.db"
-    assert cfg.context_store_path == "mayday-incidents.db"
+    assert cfg.context_store_path == "respond-incidents.db"
 
 
 def test_load_config_from_yaml(tmp_path):

@@ -6,12 +6,12 @@ All handlers log intent and return simulated success.  Real integrations
 """
 from __future__ import annotations
 
-import logging
+import structlog
 
 from nthlayer_respond.safe_actions.registry import SafeAction, SafeActionRegistry
 from nthlayer_respond.types import IncidentContext
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 # ------------------------------------------------------------------ #
@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------ #
 
 async def _rollback_handler(target: str, context: IncidentContext, **kwargs) -> dict:
-    logger.info("[STUB] rollback: would roll back service %r (incident %s)", target, context.id)
+    logger.info("[STUB] rollback: would roll back service", target=target, incident_id=context.id)
     return {"success": True, "detail": f"Rollback of {target!r} initiated (stub)."}
 
 
 async def _scale_up_handler(target: str, context: IncidentContext, **kwargs) -> dict:
-    logger.info("[STUB] scale_up: would scale up service %r (incident %s)", target, context.id)
+    logger.info("[STUB] scale_up: would scale up service", target=target, incident_id=context.id)
     return {"success": True, "detail": f"Scale-up of {target!r} initiated (stub)."}
 
 

@@ -52,7 +52,7 @@ def agent(verdict_store, registry):
         model="test-model",
         max_tokens=256,
         verdict_store=verdict_store,
-        config={},
+        config={"arbiter_url": "http://arbiter.local"},
         safe_action_registry=registry,
     )
 
@@ -230,10 +230,9 @@ def test_parse_response_hallucinated_action_logs_warning(agent, context):
         "autonomy_reduction": {"recommended": False},
         "reasoning": "Wipe it.",
     })
-    import logging
-    with patch.object(logging.getLogger("nthlayer_respond.agents.remediation"), "warning") as mock_warn:
+    with patch("nthlayer_respond.agents.remediation.logger") as mock_logger:
         result = agent.parse_response(response, context)
-    mock_warn.assert_called_once()
+    mock_logger.warning.assert_called_once()
     assert result.proposed_action is None
 
 
@@ -428,7 +427,7 @@ async def test_post_execute_autonomy_reduction(agent, context):
         reasoning="Execute and reduce autonomy.",
     )
     # Inject autonomy_reduction metadata (as _post_execute expects it stored by parse_response)
-    result._autonomy_reduction = {
+    result.autonomy_reduction = {
         "recommended": True,
         "target_agent": "triage-agent",
         "arbiter_url": "http://arbiter.local",
@@ -465,7 +464,7 @@ async def test_post_execute_no_autonomy_reduction_when_not_recommended(agent, co
         requires_human_approval=False,
         reasoning="No autonomy reduction needed.",
     )
-    result._autonomy_reduction = {"recommended": False}
+    result.autonomy_reduction = {"recommended": False}
 
     mock_exec = AsyncMock(return_value={"success": True, "detail": "ok", "timestamp": "t"})
     agent._registry.execute = mock_exec
@@ -495,7 +494,7 @@ async def test_post_execute_ordering(agent, context):
         requires_human_approval=False,
         reasoning="Execute both.",
     )
-    result._autonomy_reduction = {
+    result.autonomy_reduction = {
         "recommended": True,
         "target_agent": "investigation-agent",
         "arbiter_url": "http://arbiter.local",

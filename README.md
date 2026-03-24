@@ -2,14 +2,14 @@
 
 **Multi-agent incident response coordinated by AI.**
 
-[![Status: Architecture](https://img.shields.io/badge/Status-Architecture-blue?style=for-the-badge)](https://github.com/rsionnach/nthlayer-respond)
+[![Status: Phase 3 Complete](https://img.shields.io/badge/Status-Phase_3_Complete-brightgreen?style=for-the-badge)](https://github.com/rsionnach/nthlayer-respond)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green?style=for-the-badge)](LICENSE)
 
 Incident response involves a lot of repetitive work: classifying severity, identifying blast radius, correlating changes with symptoms, drafting stakeholder updates, deciding whether to rollback, and communicating resolution. Most of this work follows patterns that AI agents can handle reliably, freeing human responders for the judgment calls that actually need them (novel failure modes, business-critical tradeoffs, cross-team coordination).
 
 nthlayer-respond is an incident response system where specialised AI agents collaborate to triage, investigate, communicate, and remediate under human supervision. Each agent has a clear domain, defined decision authority, and its own judgment SLO that measures how often humans need to correct its work. nthlayer-respond owns the incident lifecycle, and uses tools like PagerDuty, Slack, and email as notification channels rather than treating them as upstream incident sources.
 
-This project is in the architecture phase. The design is documented below, and implementation has not yet started.
+Phase 3 is fully implemented: all agents (triage, investigation, communication, remediation), coordinator, CLI, and 8 scenario fixtures are complete, with 168 passing tests.
 
 ---
 
@@ -259,7 +259,7 @@ nthlayer-respond follows [Zero Framework Cognition](ZFC.md). The orchestrator is
 
 ## Status
 
-nthlayer-respond is in the architecture phase. The design documented here reflects the target architecture, and implementation has not yet started. The orchestration model and agent role definitions have been designed in detail (see the [nthlayer-respond architecture](https://github.com/rsionnach/opensrm/blob/main/components/mayday/README.md) in the OpenSRM repo).
+Phase 3 is fully implemented. All agents (triage, investigation, communication, remediation), the coordinator, CLI, and 8 scenario fixtures are complete. The test suite has 168 passing tests. See the [nthlayer-respond architecture](https://github.com/rsionnach/opensrm/blob/main/components/mayday/README.md) in the OpenSRM repo for the original design specification.
 
 ---
 

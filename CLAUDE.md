@@ -34,12 +34,12 @@ Follows [Zero Framework Cognition](ZFC.md): the orchestrator is pure transport; 
 - `cli.py` — 6 subcommands: serve, status, replay, approve, reject, resume
 - `coordinator.py` — deterministic state machine; sequences agent pipeline; persists IncidentContext to SQLite
 - `types.py` — IncidentContext, TriageResult, InvestigationResult, RemediationResult, CommunicationResult, Hypothesis
-- `config.py` — MaydayConfig, load_config
+- `config.py` — RespondConfig, load_config
 - `context_store.py` — SQLiteContextStore (crash recovery persistence)
 - `agents/base.py` — AgentBase ABC; transport layer (model calls, verdict emission, governance HTTP)
 - `agents/triage.py`, `investigation.py`, `remediation.py`, `communication.py` — concrete agents
 - `safe_actions/registry.py` — SafeActionRegistry (closed callable registry, cooldown tracking)
-- `safe_actions/actions.py` — register_builtin_actions (rollback, scale_up, disable_feature_flag, reduce_autonomy)
+- `safe_actions/actions.py` — register_builtin_actions (rollback, scale_up, disable_feature_flag, reduce_autonomy, pause_pipeline)
 
 **Scenario fixtures (`scenarios/synthetic/`):**
 8 YAML replay fixtures: cascading-failure, autonomy-reduction, crash-recovery, human-override, low-confidence-escalation, model-unavailable, remediation-approval, sitrep-unavailable. Each has `mock_responses` keyed by: triage, investigation, communication_initial, remediation, communication_resolution.
@@ -66,7 +66,7 @@ Follows [Zero Framework Cognition](ZFC.md): the orchestrator is pure transport; 
 | Triage | Set severity, notify teams, assign ownership | Remediate; override classification without human approval | Reversal rate < 10% |
 | Investigation | Form/rank hypotheses; declare root cause above confidence threshold | Execute any remediation | Root cause agreement with post-incident review, target 70% at maturity |
 | Communication | Draft/send updates within pre-approved templates; choose channels and timing | Contradict investigation findings; communicate resolution until confirmed | Human edit rate < 15% |
-| Remediation | Suggest fixes; execute pre-approved safe actions (rollback, scale up, disable feature flag) | Execute novel actions not pre-approved in OpenSRM manifest; touch services outside blast radius | Fix success rate 80% |
+| Remediation | Suggest fixes; execute pre-approved safe actions (rollback, scale_up, disable_feature_flag, reduce_autonomy, pause_pipeline) | Execute novel actions not pre-approved in OpenSRM manifest; touch services outside blast radius | Fix success rate 80% |
 
 **Alert flow:**
 ```
@@ -94,6 +94,8 @@ Alert Source (nthlayer-measure quality breach / Prometheus alert / any webhook)
 - Each condition is a registered callable (named function)
 - Unknown condition names fail at startup — no runtime eval of arbitrary expressions
 - Cooldown and blast radius checks built into the registry
+- `SafeAction.blast_radius_check` signature: `(target: str, context: IncidentContext) -> bool` — the full context is passed at call time; the inline comment in `registry.py` still says `topology_dict` (stale — ignore it)
+- `SafeActionRegistry.execute()` supports both sync and async handlers (detected via `inspect.iscoroutinefunction`)
 
 **Autonomy reduction (first-class concept):**
 - When an AI agent's model update causes a quality breach, the remediation agent (or triage agent) can request the nthlayer-measure to reduce that agent's autonomy
@@ -158,6 +160,10 @@ sitrep_verdicts = verdict_store.query(VerdictFilter(
 All nthlayer-respond verdicts include `lineage.context = [sitrep_verdict.id, ...]` linking to the nthlayer-correlate verdicts that informed them.
 
 **Lineage chain:** nthlayer-correlate correlation verdicts → nthlayer-respond triage verdict → investigation verdict → remediation verdict → human override verdict. One human override at any point calibrates every component upstream via lineage traversal.
+
+**Coordinator approve/reject verdict behaviour:**
+- `approve(incident_id)`: after executing the safe action, emits a `"remediation"` verdict with `action="approve"`, `confidence=1.0`, `reasoning="Human approved {action} on {target}"`; appends to `context.verdict_chain`; state → RESOLVED. On execution failure: emits `action="escalate"`, `confidence=0.0`; state → ESCALATED.
+- `reject(incident_id, reason)`: resolves the last verdict in `context.verdict_chain` as `"overridden"` with `override={"by": "human"}`; state → ESCALATED.
 
 **Degraded mode:** Agents still produce verdicts with `confidence: 0.0` and a note in `reasoning` when operating on stale nthlayer-correlate data or without model access.
 
