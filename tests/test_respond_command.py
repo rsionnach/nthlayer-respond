@@ -2,8 +2,6 @@
 """Tests for the respond CLI subcommand with verdict-triggered incidents."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest

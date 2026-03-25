@@ -542,7 +542,7 @@ def cmd_respond(args) -> None:
 
     from nthlayer_learn import SQLiteVerdictStore
 
-    from nthlayer_respond.types import IncidentContext, IncidentState
+    from nthlayer_respond.types import IncidentState
 
     verdict_store = SQLiteVerdictStore(args.verdict_store)
 
