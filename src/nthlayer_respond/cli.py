@@ -95,6 +95,14 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("incident_id", help="Incident ID")
     resume.add_argument("--config", default="respond.yaml", help="Config file path")
 
+    # respond (live — trigger from correlation verdict)
+    respond = sub.add_parser("respond", help="Respond to a correlation verdict")
+    respond.add_argument("--trigger-verdict", required=True, help="Correlation verdict ID")
+    respond.add_argument("--specs-dir", default=".", help="Directory of OpenSRM spec YAMLs")
+    respond.add_argument("--verdict-store", default="verdicts.db", help="Path to verdict SQLite DB")
+    respond.add_argument("--config", default="respond.yaml", help="Config file path")
+    respond.add_argument("--notify", default="stdout", help="Notification target: stdout or webhook URL")
+
     return parser
 
 
@@ -521,6 +529,131 @@ def main() -> None:
             finally:
                 store.close()
         asyncio.run(_resume())
+
+    elif args.command == "respond":
+        result = cmd_respond(args)
+        if result:
+            sys.exit(result)
+
+
+def cmd_respond(args) -> None:
+    """Respond to a correlation verdict — run the full agent pipeline."""
+    from pathlib import Path
+
+    from nthlayer_learn import SQLiteVerdictStore
+
+    from nthlayer_respond.types import IncidentContext, IncidentState
+
+    verdict_store = SQLiteVerdictStore(args.verdict_store)
+
+    # Read trigger correlation verdict
+    trigger = verdict_store.get(args.trigger_verdict)
+    if trigger is None:
+        print(f"Error: verdict {args.trigger_verdict} not found in store", file=sys.stderr)
+        return 1
+
+    trigger_custom = getattr(trigger.metadata, "custom", {}) or {}
+    trigger_service = trigger.subject.ref or "unknown"
+
+    # Build topology from specs
+    topology = {"services": []}
+    specs_path = Path(args.specs_dir)
+    if specs_path.is_dir():
+        import yaml
+        for spec_file in sorted(specs_path.glob("*.yaml")):
+            try:
+                raw = yaml.safe_load(spec_file.read_text())
+            except Exception:
+                continue
+            if not isinstance(raw, dict):
+                continue
+            metadata = raw.get("metadata", {})
+            spec = raw.get("spec", {})
+            deps = [d["name"] for d in spec.get("dependencies", []) if isinstance(d, dict)]
+            topology["services"].append({
+                "name": metadata.get("name", spec_file.stem),
+                "tier": metadata.get("tier", "standard"),
+                "dependencies": deps,
+            })
+
+    # Build incident context from correlation verdict
+    now = datetime.now(tz=timezone.utc).isoformat()
+    incident_id = f"INC-{trigger_service.upper()}-{now[:19].replace('-', '').replace(':', '').replace('T', '-')}"
+
+    # Determine severity from correlation verdict confidence
+    confidence = trigger.judgment.confidence
+    if confidence > 0.8:
+        severity = 1  # critical
+    elif confidence > 0.5:
+        severity = 2  # high
+    else:
+        severity = 3  # medium
+
+    context = IncidentContext(
+        id=incident_id,
+        state=IncidentState.TRIGGERED,
+        created_at=now,
+        updated_at=now,
+        trigger_source="sitrep",
+        trigger_verdict_ids=[args.trigger_verdict],
+        topology=topology,
+        metadata={
+            "correlation_verdict": args.trigger_verdict,
+            "blast_radius": trigger_custom.get("blast_radius", []),
+            "root_causes": trigger_custom.get("root_causes", []),
+            "severity": severity,
+        },
+    )
+
+    # Load config and run pipeline
+    config_path = Path(args.config)
+    if config_path.exists():
+        config = load_config(args.config)
+    else:
+        # Minimal default config for CLI invocation
+        from nthlayer_respond.config import RespondConfig
+        config = RespondConfig()
+
+    # Override config verdict_store_path to match the CLI --verdict-store flag
+    config.verdict_store_path = args.verdict_store
+
+    async def _run():
+        coord, ctx_store = _make_coordinator(config)
+        try:
+            ctx_store.save(context)
+            result_ctx = await coord.run(context)
+            return result_ctx
+        finally:
+            ctx_store.close()
+
+    result_ctx = asyncio.run(_run())
+
+    # Output
+    output = {
+        "incident_id": result_ctx.id,
+        "state": result_ctx.state.value,
+        "trigger_verdict": args.trigger_verdict,
+        "service": trigger_service,
+        "severity": severity,
+    }
+
+    if args.notify == "stdout":
+        print(json.dumps(output, indent=2))
+    elif args.notify.startswith("http"):
+        import urllib.request
+        req = urllib.request.Request(
+            args.notify,
+            data=json.dumps(output).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            print(f"Warning: notification failed: {e}", file=sys.stderr)
+        print(json.dumps(output, indent=2))
+    else:
+        print(json.dumps(output, indent=2))
 
 
 if __name__ == "__main__":
