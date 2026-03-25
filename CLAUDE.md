@@ -18,7 +18,8 @@ Multi-agent incident response system coordinated by AI. Agents collaborate to tr
 - **Install dependencies (including verdict library):** `uv sync --extra dev`
 - **Run tests:** `uv run --extra dev pytest tests/ -v`
 - **Run single test file:** `uv run --extra dev pytest tests/test_types.py -v`
-- **Run CLI:** `uv run --extra dev nthlayer-respond <serve|status|replay|approve|reject|resume>`
+- **Run CLI:** `uv run --extra dev nthlayer-respond <serve|status|replay|approve|reject|resume|respond>`
+- **Live respond from correlation verdict:** `uv run --extra dev nthlayer-respond respond --trigger-verdict <id> --specs-dir <dir> --verdict-store verdicts.db`
 - **Replay scenario:** `uv run --extra dev nthlayer-respond replay --scenario scenarios/synthetic/cascading-failure.yaml --no-model`
 - **Resume crashed incident:** `uv run --extra dev nthlayer-respond resume <incident_id>`
 - **Approve/reject remediation:** `uv run --extra dev nthlayer-respond approve <incident_id>` / `nthlayer-respond reject <incident_id> --reason <reason>`
@@ -31,7 +32,7 @@ Multi-agent incident response system coordinated by AI. Agents collaborate to tr
 Follows [Zero Framework Cognition](ZFC.md): the orchestrator is pure transport; agents provide judgment.
 
 **Source layout (`src/nthlayer_respond/`):**
-- `cli.py` — 6 subcommands: serve, status, replay, approve, reject, resume
+- `cli.py` — 7 subcommands: serve, status, replay, approve, reject, resume, respond
 - `coordinator.py` — deterministic state machine; sequences agent pipeline; persists IncidentContext to SQLite
 - `types.py` — IncidentContext, TriageResult, InvestigationResult, RemediationResult, CommunicationResult, Hypothesis
 - `config.py` — RespondConfig, load_config
@@ -72,10 +73,26 @@ Follows [Zero Framework Cognition](ZFC.md): the orchestrator is pure transport; 
 ```
 Alert Source (nthlayer-measure quality breach / Prometheus alert / any webhook)
 → nthlayer-correlate Snapshot (correlated context)
+→ nthlayer-respond respond --trigger-verdict <id>  ← live trigger path
 → nthlayer-respond Orchestrator (creates incident context)
 → Agent Pipeline (triage → investigate + communicate → remediate)
 → Notification Channels (PagerDuty / Slack / email / status page)
 ```
+
+**`respond` subcommand (live trigger from correlation verdict):**
+- `nthlayer-respond respond --trigger-verdict <id> --specs-dir <dir> --verdict-store <path> [--notify stdout|<webhook-url>]`
+- Reads correlation verdict from store; builds `IncidentContext` with `trigger_verdict_ids=[corr.id]`, `trigger_source="sitrep"`
+- Severity mapped from verdict confidence: `> 0.8 → 1` (critical), `> 0.5 → 2` (major), else `3` (minor)
+- Incident ID format: `INC-{SERVICE_UPPER}-{timestamp}`
+- Topology loaded from `--specs-dir` OpenSRM YAMLs
+- Exits 1 if trigger verdict not found
+
+**`replay` subcommand — `--no-model` scenario execution:**
+- `replay_command()` is async; accepts `work_dir` parameter for temp directory override; uses `MemoryStore` (not `SQLiteVerdictStore`) for verdicts in replay; auto-creates tempdir if `work_dir=None`
+- `_build_replay_agents()`: patches `_call_model` per agent when `--no-model`; mock responses keyed by `triage`, `investigation`, `communication_initial`, `communication_resolution`, `remediation`; communication agent uses sequenced mock (2-call: initial then resolution); all 4 agents accept `timeout=` kwarg from config (`triage_timeout`, `investigation_timeout`, `communication_timeout`, `remediation_timeout`)
+- `replay --no-model` registry override: sets `requires_approval=False` on the named action ONLY when `scenario.mock_responses.remediation.requires_human_approval` is explicitly `false`; never overrides to `True` (approval ratchet preserved)
+- `_build_incident_context()` for `sitrep` trigger source: in `--no-model` mode, creates a mock correlation verdict via `verdict_create()` and puts it in `MemoryStore`; hardcoded topology: payment-api (critical, depends database-primary) + checkout-service (critical, depends payment-api); for `pagerduty` trigger: builds single-service topology from `trigger.alert.service` with empty dependencies list
+- `_handle_interactions()`: processes scenario `interactions[]` entries — supports `after:remediation_proposed/approve`, `after:remediation_proposed/reject`, `after:triage/reject`
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: patterns -->
