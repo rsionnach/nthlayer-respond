@@ -39,6 +39,9 @@ class CommunicationAgent(AgentBase):
             "Respond with ONLY valid JSON."
         )
 
+        # Service context from OpenSRM spec
+        svc_ctx = self._build_service_context_prompt(context)
+
         if context.remediation is None:
             # Phase 1 — initial status update
             triage = context.triage
@@ -62,6 +65,9 @@ class CommunicationAgent(AgentBase):
                 f"Outcome: {rem.execution_result}."
             )
 
+        if svc_ctx:
+            user = user + "\n" + svc_ctx
+
         return system, user
 
     def parse_response(
@@ -72,17 +78,31 @@ class CommunicationAgent(AgentBase):
         timestamp = datetime.now(tz=timezone.utc).isoformat()
 
         updates: list[CommunicationUpdate] = []
-        for raw in data.get("updates") or []:
+        for raw in data.get("updates") or data.get("messages") or []:
             updates.append(
                 CommunicationUpdate(
                     channel=raw.get("channel", ""),
                     timestamp=timestamp,
-                    update_type=raw.get("update_type", ""),
-                    content=raw.get("content", ""),
+                    update_type=raw.get("update_type", raw.get("type", "")),
+                    content=raw.get("content", raw.get("message", "")),
                 )
             )
 
-        reasoning: str = data.get("reasoning", "")
+        # If no structured updates, synthesize from flat response fields
+        if not updates:
+            content_parts = []
+            for key in ("title", "impact_description", "current_status", "summary", "message"):
+                if data.get(key):
+                    content_parts.append(str(data[key]))
+            if content_parts:
+                updates.append(CommunicationUpdate(
+                    channel=data.get("channel", "status_page"),
+                    timestamp=timestamp,
+                    update_type=data.get("status", "initial"),
+                    content=" — ".join(content_parts),
+                ))
+
+        reasoning: str = data.get("reasoning", "") or data.get("rationale", "")
         return CommunicationResult(updates_sent=updates, reasoning=reasoning)
 
     def _apply_result(

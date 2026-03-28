@@ -43,7 +43,7 @@ def _make_correlation_verdict(store):
             "summary": "Correlation: 1 group across 3 services",
         },
         judgment={"action": "flag", "confidence": 0.85},
-        producer={"system": "sitrep"},
+        producer={"system": "nthlayer-correlate"},
         metadata={"custom": {
             "trigger_verdict": "vrd-eval-001",
             "root_causes": [{"service": "fraud-detect", "type": "model_deploy", "confidence": 0.9}],
@@ -97,7 +97,7 @@ def test_respond_command_builds_incident_from_verdict(specs_dir, tmp_path):
     mock_coord.run.assert_called_once()
     ctx_arg = mock_coord.run.call_args[0][0]
     assert ctx_arg.trigger_verdict_ids == [corr.id]
-    assert ctx_arg.trigger_source == "sitrep"
+    assert ctx_arg.trigger_source == "nthlayer-correlate"
     assert "FRAUD-DETECT" in ctx_arg.id
 
 
@@ -134,7 +134,7 @@ def test_respond_command_severity_mapping(specs_dir, tmp_path):
     v = verdict_create(
         subject={"type": "correlation", "ref": "fraud-detect", "summary": "test"},
         judgment={"action": "flag", "confidence": 0.95},
-        producer={"system": "sitrep"},
+        producer={"system": "nthlayer-correlate"},
         metadata={"custom": {"blast_radius": [], "root_causes": []}},
     )
     store.put(v)

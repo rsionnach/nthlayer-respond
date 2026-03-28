@@ -2,7 +2,7 @@ scenario:
   id: low-confidence-escalation
   description: "Investigation confidence too low - escalate to human"
   trigger:
-    source: sitrep
+    source: nthlayer-correlate
     sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/multi-candidate.yaml"
   mock_responses:
     triage:

@@ -2,7 +2,7 @@ scenario:
   id: cascading-failure
   description: "End-to-end: SitRep correlation -> full Mayday pipeline -> RESOLVED"
   trigger:
-    source: sitrep
+    source: nthlayer-correlate
     sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/cascading-failure.yaml"
   mock_responses:
     triage:

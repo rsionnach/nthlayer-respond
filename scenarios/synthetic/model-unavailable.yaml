@@ -2,7 +2,7 @@ scenario:
   id: model-unavailable
   description: "Anthropic API down - all agents degrade gracefully"
   trigger:
-    source: sitrep
+    source: nthlayer-correlate
     sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/cascading-failure.yaml"
   mock_responses:
     triage: null

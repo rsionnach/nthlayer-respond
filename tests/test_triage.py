@@ -25,7 +25,7 @@ def sitrep_context(verdict_store):
     v = verdict_create(
         subject={"type": "correlation", "service": "payment-api", "ref": "cg-001", "summary": "Latency spike correlated with deploy"},
         judgment={"action": "flag", "confidence": 0.82, "reasoning": "Strong temporal correlation"},
-        producer={"system": "sitrep"},
+        producer={"system": "nthlayer-correlate"},
     )
     verdict_store.put(v)
     return IncidentContext(
@@ -33,7 +33,7 @@ def sitrep_context(verdict_store):
         state=IncidentState.TRIGGERED,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:00:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=[v.id],
         topology={"services": [{"name": "payment-api", "tier": "critical"}]},
     )
@@ -55,7 +55,7 @@ def pagerduty_context():
 def test_build_prompt_sitrep_source(triage_agent, sitrep_context):
     system, user = triage_agent.build_prompt(sitrep_context)
     assert "10%" in system or "reversal" in system.lower()
-    assert "pre-correlated" in user.lower() or "sitrep" in user.lower()
+    assert "pre-correlated" in user.lower() or "nthlayer-correlate" in user.lower()
     assert "payment-api" in user
 
 
@@ -165,7 +165,7 @@ async def test_post_execute_triggers_autonomy_reduction(triage_agent, verdict_st
     v = verdict_create(
         subject={"type": "correlation", "service": "api", "ref": "cg-002", "summary": "Model drift"},
         judgment={"action": "flag", "confidence": 0.9, "reasoning": "drift", "tags": ["agent_model_update"]},
-        producer={"system": "sitrep"},
+        producer={"system": "nthlayer-correlate"},
     )
     verdict_store.put(v)
     context = IncidentContext(
@@ -173,7 +173,7 @@ async def test_post_execute_triggers_autonomy_reduction(triage_agent, verdict_st
         state=IncidentState.TRIGGERED,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:00:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=[v.id],
         topology={},
     )
@@ -197,7 +197,7 @@ async def test_post_execute_no_autonomy_reduction_high_severity(triage_agent, ve
     v = verdict_create(
         subject={"type": "correlation", "service": "api", "ref": "cg-003", "summary": "Model drift"},
         judgment={"action": "flag", "confidence": 0.9, "reasoning": "drift", "tags": ["agent_model_update"]},
-        producer={"system": "sitrep"},
+        producer={"system": "nthlayer-correlate"},
     )
     verdict_store.put(v)
     context = IncidentContext(
@@ -205,7 +205,7 @@ async def test_post_execute_no_autonomy_reduction_high_severity(triage_agent, ve
         state=IncidentState.TRIGGERED,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:00:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=[v.id],
         topology={},
     )
@@ -227,7 +227,7 @@ async def test_post_execute_no_autonomy_reduction_no_tag(triage_agent, verdict_s
     v = verdict_create(
         subject={"type": "correlation", "service": "api", "ref": "cg-004", "summary": "Normal alert"},
         judgment={"action": "flag", "confidence": 0.9, "reasoning": "normal"},
-        producer={"system": "sitrep"},
+        producer={"system": "nthlayer-correlate"},
     )
     verdict_store.put(v)
     context = IncidentContext(
@@ -235,7 +235,7 @@ async def test_post_execute_no_autonomy_reduction_no_tag(triage_agent, verdict_s
         state=IncidentState.TRIGGERED,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:00:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=[v.id],
         topology={},
     )

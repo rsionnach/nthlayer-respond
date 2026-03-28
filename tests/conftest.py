@@ -20,7 +20,7 @@ def sample_context():
         state=IncidentState.TRIGGERED,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:00:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=["vrd-2026-03-19-abc12345-00001"],
         topology={
             "services": [

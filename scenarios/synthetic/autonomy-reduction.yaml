@@ -2,7 +2,7 @@ scenario:
   id: autonomy-reduction
   description: "Agent model update caused quality breach - remediation reduces autonomy"
   trigger:
-    source: sitrep
+    source: nthlayer-correlate
     sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/simple-causal-chain.yaml"
   mock_responses:
     triage:

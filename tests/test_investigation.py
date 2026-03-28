@@ -71,7 +71,7 @@ def sitrep_verdict(verdict_store):
             "confidence": 0.85,
             "reasoning": "Strong temporal correlation with recent deploy",
         },
-        producer={"system": "sitrep"},
+        producer={"system": "nthlayer-correlate"},
     )
     verdict_store.put(v)
     return v
@@ -95,7 +95,7 @@ def context_with_triage(verdict_store, sitrep_verdict, triage_result):
         state=IncidentState.INVESTIGATING,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:05:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=[sitrep_verdict.id],
         topology={
             "services": [
@@ -159,8 +159,8 @@ def test_build_prompt_includes_topology(investigation_agent, context_with_triage
 
 def test_build_prompt_includes_trigger_verdict_info(investigation_agent, context_with_triage):
     _, user = investigation_agent.build_prompt(context_with_triage)
-    # The sitrep verdict correlation info should appear
-    assert "sitrep" in user.lower() or "correlation" in user.lower() or "latency spike" in user.lower()
+    # The nthlayer-correlate verdict correlation info should appear
+    assert "nthlayer-correlate" in user.lower() or "correlation" in user.lower() or "latency spike" in user.lower()
 
 
 def test_build_prompt_no_triage(investigation_agent, context_no_triage):

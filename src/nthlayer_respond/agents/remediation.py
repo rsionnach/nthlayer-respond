@@ -88,6 +88,11 @@ class RemediationAgent(AgentBase):
             parts.append(f"  blast_radius={t.blast_radius}")
             parts.append(f"  affected_slos={t.affected_slos}")
 
+        # Service context from OpenSRM spec + evaluation verdict
+        svc_ctx = self._build_service_context_prompt(context)
+        if svc_ctx:
+            parts.append(svc_ctx)
+
         # Topology
         parts.append(f"\nTopology: {json.dumps(context.topology)}")
 
@@ -99,12 +104,12 @@ class RemediationAgent(AgentBase):
     ) -> RemediationResult:
         data = self._parse_json(response)
 
-        proposed_action: str | None = data.get("proposed_action")
-        target: str | None = data.get("target")
-        risk_assessment: str = data.get("risk_assessment", "")
+        proposed_action: str | None = data.get("proposed_action") or data.get("recommended_action") or data.get("action")
+        target: str | None = data.get("target") or data.get("target_service")
+        risk_assessment: str = data.get("risk_assessment", "") or data.get("risk", "")
         requires_human_approval: bool = bool(data.get("requires_human_approval", True))
         autonomy_reduction: dict = data.get("autonomy_reduction") or {}
-        reasoning: str = data.get("reasoning", "")
+        reasoning: str = data.get("reasoning", "") or data.get("rationale", "")
 
         # Critical validation: reject hallucinated actions
         if proposed_action is not None:

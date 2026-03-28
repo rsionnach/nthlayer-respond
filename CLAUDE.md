@@ -15,7 +15,7 @@ Multi-agent incident response system coordinated by AI. Agents collaborate to tr
 
 ## Build Commands
 
-- **Install dependencies (including verdict library):** `uv sync --extra dev`
+- **Install dependencies (including nthlayer-learn + nthlayer-common path deps):** `uv sync --extra dev`
 - **Run tests:** `uv run --extra dev pytest tests/ -v`
 - **Run single test file:** `uv run --extra dev pytest tests/test_types.py -v`
 - **Run CLI:** `uv run --extra dev nthlayer-respond <serve|status|replay|approve|reject|resume|respond>`
@@ -62,12 +62,12 @@ Follows [Zero Framework Cognition](ZFC.md): the orchestrator is pure transport; 
 
 **Agent roles and judgment SLOs:**
 
-| Agent | Authority | Cannot | Judgment SLO |
-|-------|-----------|--------|--------------|
-| Triage | Set severity, notify teams, assign ownership | Remediate; override classification without human approval | Reversal rate < 10% |
-| Investigation | Form/rank hypotheses; declare root cause above confidence threshold | Execute any remediation | Root cause agreement with post-incident review, target 70% at maturity |
-| Communication | Draft/send updates within pre-approved templates; choose channels and timing | Contradict investigation findings; communicate resolution until confirmed | Human edit rate < 15% |
-| Remediation | Suggest fixes; execute pre-approved safe actions (rollback, scale_up, disable_feature_flag, reduce_autonomy, pause_pipeline) | Execute novel actions not pre-approved in OpenSRM manifest; touch services outside blast radius | Fix success rate 80% |
+| Agent | Authority | Cannot | Judgment SLO | default_timeout |
+|-------|-----------|--------|--------------|-----------------|
+| Triage | Set severity (0–4, 0=P0), notify teams, assign ownership | Remediate; override classification without human approval | Reversal rate < 10% | 15s |
+| Investigation | Form/rank hypotheses; declare root cause above confidence threshold | Execute any remediation | Root cause agreement with post-incident review, target 70% at maturity | 60s |
+| Communication | Draft/send updates within pre-approved templates; choose channels and timing | Contradict investigation findings; communicate resolution until confirmed | Human edit rate < 15% | 20s |
+| Remediation | Suggest fixes; execute pre-approved safe actions (rollback, scale_up, disable_feature_flag, reduce_autonomy, pause_pipeline) | Execute novel actions not pre-approved in OpenSRM manifest; touch services outside blast radius | Fix success rate 80% | 30s |
 
 **Alert flow:**
 ```
@@ -80,8 +80,8 @@ Alert Source (nthlayer-measure quality breach / Prometheus alert / any webhook)
 ```
 
 **`respond` subcommand (live trigger from correlation verdict):**
-- `nthlayer-respond respond --trigger-verdict <id> --specs-dir <dir> --verdict-store <path> [--notify stdout|<webhook-url>]`
-- Reads correlation verdict from store; builds `IncidentContext` with `trigger_verdict_ids=[corr.id]`, `trigger_source="sitrep"`
+- `nthlayer-respond respond --trigger-verdict <id> --specs-dir <dir> --verdict-store <path> [--notify stdout|<webhook-url>] [--model <provider/model>]`
+- Reads correlation verdict from store; builds `IncidentContext` with `trigger_verdict_ids=[corr.id]`, `trigger_source="nthlayer-correlate"`
 - Severity mapped from verdict confidence: `> 0.8 → 1` (critical), `> 0.5 → 2` (major), else `3` (minor)
 - Incident ID format: `INC-{SERVICE_UPPER}-{timestamp}`
 - Topology loaded from `--specs-dir` OpenSRM YAMLs
@@ -91,7 +91,7 @@ Alert Source (nthlayer-measure quality breach / Prometheus alert / any webhook)
 - `replay_command()` is async; accepts `work_dir` parameter for temp directory override; uses `MemoryStore` (not `SQLiteVerdictStore`) for verdicts in replay; auto-creates tempdir if `work_dir=None`
 - `_build_replay_agents()`: patches `_call_model` per agent when `--no-model`; mock responses keyed by `triage`, `investigation`, `communication_initial`, `communication_resolution`, `remediation`; communication agent uses sequenced mock (2-call: initial then resolution); all 4 agents accept `timeout=` kwarg from config (`triage_timeout`, `investigation_timeout`, `communication_timeout`, `remediation_timeout`)
 - `replay --no-model` registry override: sets `requires_approval=False` on the named action ONLY when `scenario.mock_responses.remediation.requires_human_approval` is explicitly `false`; never overrides to `True` (approval ratchet preserved)
-- `_build_incident_context()` for `sitrep` trigger source: in `--no-model` mode, creates a mock correlation verdict via `verdict_create()` and puts it in `MemoryStore`; hardcoded topology: payment-api (critical, depends database-primary) + checkout-service (critical, depends payment-api); for `pagerduty` trigger: builds single-service topology from `trigger.alert.service` with empty dependencies list
+- `_build_incident_context()` for `nthlayer-correlate` trigger source (also accepts legacy `"sitrep"` alias in scenario YAMLs): in `--no-model` mode, creates a mock correlation verdict via `verdict_create()` and puts it in `MemoryStore`; hardcoded topology: payment-api (critical, depends database-primary) + checkout-service (critical, depends payment-api); sets `trigger_source="nthlayer-correlate"` regardless of alias used; for `pagerduty` trigger: builds single-service topology from `trigger.alert.service` with empty dependencies list
 - `_handle_interactions()`: processes scenario `interactions[]` entries — supports `after:remediation_proposed/approve`, `after:remediation_proposed/reject`, `after:triage/reject`
 <!-- END AUTO-MANAGED -->
 
@@ -132,15 +132,32 @@ Alert Source (nthlayer-measure quality breach / Prometheus alert / any webhook)
 - Testable with mock agents (no model required)
 
 **AgentBase transport layer (all agents inherit):**
-- `_call_model`: lazy Anthropic client init, `asyncio.to_thread` for blocking SDK call, `asyncio.wait_for` timeout
+- `_call_model`: delegates to `nthlayer_common.llm.llm_call` via `asyncio.to_thread` + `asyncio.wait_for` timeout; model format `"provider/model"` (anthropic, openai, ollama, etc.)
 - `_emit_verdict`: sets `subject.type=role.value`, wires `lineage.context` from `context.trigger_verdict_ids`, chains `lineage.parent` from `context.verdict_chain[-1]`
-- `_degraded_verdict`: emits `confidence=0.0`, `action="escalate"`, tags `["degraded","human-takeover-required"]` when model fails
-- `_parse_json`: strips markdown fences and preamble before parsing; handles `{...}` extraction from noisy model output
+- `_build_service_context_prompt`: builds a service context section for agent prompts from `context.metadata.service_context`; emits service name, service_type (labelled "AI decision service" or "traditional service"), tier, team, breached SLO name/type with description ("JUDGMENT SLO — measures decision quality" vs "measures infrastructure reliability"), current/target values, declared SLOs list, and role-specific remediation guidance (AI gate: model rollback/canary revert/autonomy reduction; infra: rollback/scale_up/restart/feature flag disable); returns `""` if no `service_context` key present
+- `_degraded_verdict`: emits `confidence=0.0`, `action="escalate"`, tags `["degraded","human-takeover-required"]` when model fails; delegates subject summary to `_build_degraded_summary`
+- `_build_degraded_summary`: constructs informative degraded subject summary from `context.metadata` — extracts `blast_radius`, `root_causes[0].service/type`, `severity`, `incident_id`; role-specific format: triage → `"DEGRADED: SEV-N — service type, K services in blast radius"`; investigation → `"DEGRADED: Manual investigation required — root cause from correlation: service (type)"`; communication → `"DEGRADED: Draft status update required for {incident_id}"`; remediation → `"DEGRADED: Manual remediation required — see correlation verdict for recommended actions"`
+- `_parse_json`: strips markdown fences and preamble before parsing; handles `{...}` extraction from noisy model output via brace-depth matching
+- `_build_summary`: role-specific subject summary for emitted verdicts — triage: `"SEV-{sev}: {first sentence of reasoning}"` or fallback `"SEV-{sev} — {N} services in blast radius[, assigned to {team}]"`; investigation: `"Root cause ({confidence:.0%} confidence): {rc[:90]}"` or `"Hypothesis: {desc[:90]}"` or first sentence of reasoning ([:90]) or `"Agent response produced no summary — see raw output"` (with `log.warning`); communication: `"{'via ' + channel + ': ' if channel else ''}{content[:90]}"` (channel omitted if empty) or first sentence of reasoning ([:90]) or generic `"Agent response produced no summary — see raw output"` (no communication-specific context fallback); remediation: `"{action} on {target}[ (requires approval)]"` (approval suffix only when `requires_human_approval=True`; no auto-approved text; no risk suffix) or `"Proposed: {action}"` (no approval suffix on action-only branch) or first sentence of reasoning ([:90]) or context-based fallback from `metadata.root_causes`
+- `execute()` template method: calls `build_prompt` → `_call_model` → `parse_response` → `_apply_result` → `_build_summary` → `_emit_verdict(action="flag")` → `_post_execute`; on any exception emits `_degraded_verdict` instead
+- `_post_execute(context, result) -> IncidentContext`: hook called after successful execute cycle; no-op in AgentBase; overridden by subclasses (e.g. TriageAgent triggers autonomy reduction here)
 - `_request_autonomy_reduction`: stdlib `urllib`, 3 retries, POST to nthlayer-measure governance endpoint
 
 **Two-phase communication:**
 - Phase 1 (called when `context.remediation is None`): drafts initial status update
 - Phase 2 (called after remediation): drafts resolution update; APPENDS to Phase 1's `updates_sent` — never replaces
+- `_apply_result`: if `context.communication is None` sets it; otherwise appends `updates_sent` entries and updates `reasoning` — phase 1 updates are preserved
+- Flat-field synthesis fallback (when model returns no `updates`/`messages` array): joins non-empty fields `title`, `impact_description`, `current_status`, `summary`, `message` with `" — "`; `channel` defaults to `"status_page"`, `update_type` read from `data.get("status", "initial")` (key is `"status"`, not `"update_type"`)
+
+**parse_response field aliases (each agent accepts multiple JSON key names):**
+- Triage: `severity` (clamped to [0,4]); `blast_radius` (coerced to list if scalar); `assigned_team` or `team_assignment`; `reasoning` or `rationale`
+- Investigation: hypotheses items accept `description`, `hypothesis`, or `summary`; `evidence` falls back to `reasoning` field if empty; `root_cause_confidence` also accepts top-level `confidence`; `reasoning` or `analysis`
+- Remediation: `proposed_action`, `recommended_action`, or `action`; `target` or `target_service`; `risk_assessment` or `risk`; `reasoning` or `rationale`; `autonomy_reduction` dict stashed on result for `_post_execute`
+- Communication: top-level list key `updates` or `messages`; per-item `update_type` or `type`; per-item `content` or `message`; `reasoning` or `rationale`
+
+**Remediation `_post_execute` two-step sequence:**
+1. Execute safe action if `not result.requires_human_approval` and `result.proposed_action is not None` → sets `result.executed: bool`, `result.execution_result: str`
+2. Autonomy reduction if `autonomy_reduction.recommended` → POSTs to `arbiter_url`; sets `result.autonomy_reduced: bool`, `result.autonomy_target: str`, `result.previous_autonomy_level`, `result.new_autonomy_level`
 
 **Post-incident learning loop:**
 - Manifest updates (tighter SLO targets, new dependency declarations, new safe action definitions)
@@ -154,7 +171,7 @@ Alert Source (nthlayer-measure quality breach / Prometheus alert / any webhook)
 
 All agents produce verdicts via `AgentBase._emit_verdict`. Consuming nthlayer-correlate correlation verdicts as trigger input is implemented (TriageAgent and InvestigationAgent read from `context.trigger_verdict_ids`). See `nthlayer-learn/` for the verdict library.
 
-**Install:** verdict is a path dependency managed via `uv.sources` (`uv sync` installs it automatically from `../nthlayer-learn/lib/python`)
+**Install:** both `nthlayer-learn` and `nthlayer-common` are path dependencies managed via `uv.sources` (`uv sync` installs them automatically from `../nthlayer-learn/lib/python` and `../nthlayer-common`)
 
 **Shared store:** single `verdicts.db` with WAL mode — NOT a per-component store. All ecosystem components read/write the same file.
 

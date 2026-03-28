@@ -12,7 +12,7 @@ license = {text = "Apache-2.0"}
 dependencies = [
     "pyyaml>=6.0.1",
     "structlog>=24.1",
-    "anthropic>=0.39",
+    "nthlayer-common",
     "nthlayer-learn",
 ]
 
@@ -35,3 +35,4 @@ asyncio_mode = "auto"
 
 [tool.uv.sources]
 nthlayer-learn = { path = "../nthlayer-learn/lib/python" }
+nthlayer-common = { path = "../nthlayer-common" }

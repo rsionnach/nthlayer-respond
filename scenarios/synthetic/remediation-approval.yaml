@@ -2,7 +2,7 @@ scenario:
   id: remediation-approval
   description: "Remediation proposes rollback requiring human approval"
   trigger:
-    source: sitrep
+    source: nthlayer-correlate
     sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/cascading-failure.yaml"
   mock_responses:
     triage:

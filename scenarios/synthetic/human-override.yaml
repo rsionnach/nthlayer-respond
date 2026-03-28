@@ -2,7 +2,7 @@ scenario:
   id: human-override
   description: "On-call rejects triage severity assessment"
   trigger:
-    source: sitrep
+    source: nthlayer-correlate
     sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/simple-causal-chain.yaml"
   mock_responses:
     triage:

@@ -2,7 +2,7 @@ scenario:
   id: crash-recovery
   description: "Coordinator crashes after triage, resumes from investigation"
   trigger:
-    source: sitrep
+    source: nthlayer-correlate
     sitrep_scenario: "../../nthlayer-correlate/scenarios/synthetic/cascading-failure.yaml"
   crash_after_step: 0
   mock_responses:

@@ -102,7 +102,7 @@ def test_incident_context_minimal():
         state=IncidentState.TRIGGERED,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:00:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=["vrd-2026-03-19-abc12345-00001"],
         topology={},
     )
@@ -118,7 +118,7 @@ def test_incident_context_with_results():
         state=IncidentState.INVESTIGATING,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:05:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=[],
         topology={},
         triage=TriageResult(

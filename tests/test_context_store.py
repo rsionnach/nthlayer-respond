@@ -17,7 +17,7 @@ def make_context(incident_id="INC-2026-0001", state=IncidentState.TRIGGERED):
         state=state,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:00:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=["vrd-001"],
         topology={},
     )

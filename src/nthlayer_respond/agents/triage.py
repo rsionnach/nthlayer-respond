@@ -33,10 +33,10 @@ class TriageAgent(AgentBase):
 
         parts: list[str] = []
 
-        if context.trigger_source == "sitrep":
+        if context.trigger_source == "nthlayer-correlate":
             parts.append(
-                "You have pre-correlated context from SitRep. "
-                "The following SitRep verdicts informed this incident:"
+                "You have pre-correlated context from nthlayer-correlate. "
+                "The following correlation verdicts informed this incident:"
             )
             for vid in context.trigger_verdict_ids:
                 try:
@@ -57,6 +57,11 @@ class TriageAgent(AgentBase):
                 "Assess based solely on the topology information below."
             )
 
+        # Service context from OpenSRM spec + evaluation verdict
+        svc_ctx = self._build_service_context_prompt(context)
+        if svc_ctx:
+            parts.append(svc_ctx)
+
         # Always include topology
         parts.append(f"\nTopology: {json.dumps(context.topology)}")
 
@@ -69,10 +74,11 @@ class TriageAgent(AgentBase):
         raw_severity = data.get("severity", 2)
         severity = max(0, min(4, int(raw_severity)))
 
-        blast_radius: list[str] = data.get("blast_radius") or []
+        raw_blast = data.get("blast_radius") or []
+        blast_radius: list[str] = raw_blast if isinstance(raw_blast, list) else [raw_blast] if raw_blast else []
         affected_slos: list[str] = data.get("affected_slos") or []
-        assigned_team: str | None = data.get("assigned_team")
-        reasoning: str = data.get("reasoning", "")
+        assigned_team: str | None = data.get("assigned_team") or data.get("team_assignment")
+        reasoning: str = data.get("reasoning", "") or data.get("rationale", "")
 
         return TriageResult(
             severity=severity,

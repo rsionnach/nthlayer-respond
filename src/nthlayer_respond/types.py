@@ -92,7 +92,7 @@ class IncidentContext:
     state: IncidentState
     created_at: str  # ISO 8601
     updated_at: str
-    trigger_source: str  # "sitrep", "pagerduty", "manual"
+    trigger_source: str  # "nthlayer-correlate", "pagerduty", "manual"
     trigger_verdict_ids: list[str]
     topology: dict
     triage: TriageResult | None = None

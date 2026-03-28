@@ -10,6 +10,10 @@ import urllib.error
 from abc import ABC, abstractmethod
 from typing import Any
 
+import structlog
+
+log = structlog.get_logger(__name__)
+
 from nthlayer_learn import create as verdict_create, Verdict
 
 from nthlayer_respond.types import AgentRole, IncidentContext
@@ -44,36 +48,31 @@ class AgentBase(ABC):
         self._verdict_store = verdict_store
         self._config = config
         self._timeout = timeout if timeout is not None else self.default_timeout
-        self._client = None  # lazy-init Anthropic client
 
     # ------------------------------------------------------------------ #
     # Transport: model                                                     #
     # ------------------------------------------------------------------ #
 
     async def _call_model(self, system_prompt: str, user_prompt: str) -> str:
-        """Call the Anthropic API asynchronously.
+        """Call the LLM via the shared nthlayer-common wrapper.
 
-        Lazy-initialises the synchronous Anthropic client, then offloads
-        the blocking call to a thread via asyncio.to_thread, wrapped in
+        Uses asyncio.to_thread for the sync httpx call, wrapped in
         asyncio.wait_for for timeout enforcement.
         """
-        if self._client is None:
-            import anthropic  # deferred import — not available in tests
-            self._client = anthropic.Anthropic()
+        from nthlayer_common.llm import llm_call
 
-        def _sync_call() -> str:
-            response = self._client.messages.create(
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                llm_call,
+                system=system_prompt,
+                user=user_prompt,
                 model=self._model,
                 max_tokens=self._max_tokens,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            return response.content[0].text
-
-        return await asyncio.wait_for(
-            asyncio.to_thread(_sync_call),
+                timeout=self._timeout,
+            ),
             timeout=self._timeout,
         )
+        return result.text
 
     # ------------------------------------------------------------------ #
     # Transport: verdict emission                                          #
@@ -118,17 +117,157 @@ class AgentBase(ABC):
         context.verdict_chain.append(v.id)
         return v
 
+    def _build_service_context_prompt(self, context: IncidentContext) -> str:
+        """Build a service context section for agent prompts from OpenSRM spec
+        and evaluation verdict data. This gives agents the domain context they
+        need to reason correctly about AI vs infrastructure failures."""
+        meta = getattr(context, "metadata", {}) or {}
+        svc_ctx = meta.get("service_context", {})
+        if not svc_ctx:
+            return ""
+
+        lines = ["\nService context:"]
+        service = svc_ctx.get("service", "unknown")
+        svc_type = svc_ctx.get("service_type", "unknown")
+        is_ai = svc_ctx.get("is_ai_gate", False)
+        spec = svc_ctx.get("spec", {})
+        ev = svc_ctx.get("evaluation", {})
+
+        type_desc = "AI decision service" if is_ai else "traditional service"
+        lines.append(f"- Service: {service}")
+        lines.append(f"- Type: {svc_type} ({type_desc})")
+
+        if spec.get("tier"):
+            lines.append(f"- Tier: {spec['tier']}")
+        if spec.get("team"):
+            lines.append(f"- Team: {spec['team']}")
+
+        # SLO breach details from evaluation verdict
+        if ev.get("slo_name"):
+            slo_name = ev["slo_name"]
+            slo_type = ev.get("slo_type", "unknown")
+            target = ev.get("target")
+            current = ev.get("current_value")
+            slo_desc = "measures decision quality, not infrastructure health" if slo_type == "judgment" else "measures infrastructure reliability"
+            lines.append(f"- Breached SLO: {slo_name} ({slo_type.upper()} SLO — {slo_desc})")
+            if current is not None and target is not None:
+                lines.append(f"- Current value: {current} (target: < {target})")
+
+        # SLO definitions from spec
+        slos = spec.get("slos", {})
+        if slos:
+            lines.append(f"- Declared SLOs: {', '.join(slos.keys())}")
+
+        # Remediation guidance based on service type
+        if is_ai:
+            lines.append("- This is NOT an infrastructure issue. This is an AI model quality issue.")
+            lines.append("- Appropriate remediation: model rollback, canary revert, autonomy reduction")
+            lines.append("- Inappropriate remediation: scale_up, restart, increase resources")
+        else:
+            lines.append("- This is an infrastructure/availability issue.")
+            lines.append("- Appropriate remediation: rollback, scale_up, restart, feature flag disable")
+
+        return "\n".join(lines)
+
+    def _build_summary(self, context: IncidentContext, result) -> str:
+        """Build summary strictly from the agent's actual LLM output.
+
+        Every field must be traceable to the agent's response.
+        No template-generated content that impersonates agent reasoning.
+        """
+        role = self.role.value
+        reasoning = getattr(result, "reasoning", None) or ""
+
+        if role == "triage":
+            sev = getattr(result, "severity", None)
+            blast = getattr(result, "blast_radius", None) or []
+            team = getattr(result, "assigned_team", None)
+            first_sentence = reasoning.split(".")[0].strip() if reasoning else ""
+            if first_sentence:
+                return f"SEV-{sev}: {first_sentence}"
+            if sev is not None:
+                parts = [f"SEV-{sev}"]
+                if blast:
+                    parts.append(f"{len(blast)} services in blast radius")
+                if team:
+                    parts.append(f"assigned to {team}")
+                return " — ".join(parts)
+
+        elif role == "investigation":
+            rc = getattr(result, "root_cause", None)
+            rc_conf = getattr(result, "root_cause_confidence", 0)
+            if rc:
+                return f"Root cause ({rc_conf:.0%} confidence): {rc[:90]}"
+            hypotheses = getattr(result, "hypotheses", None) or []
+            if hypotheses:
+                h = hypotheses[0]
+                desc = getattr(h, "description", str(h)) if hasattr(h, "description") else str(h)
+                return f"Hypothesis: {desc[:90]}"
+
+        elif role == "communication":
+            updates = getattr(result, "updates_sent", None) or []
+            if updates:
+                u = updates[0]
+                content = getattr(u, "content", "") if hasattr(u, "content") else str(u)
+                channel = getattr(u, "channel", "") if hasattr(u, "channel") else ""
+                return f"{'via ' + channel + ': ' if channel else ''}{content[:90]}"
+
+        elif role == "remediation":
+            action = getattr(result, "proposed_action", None)
+            target = getattr(result, "target", None)
+            if action and target:
+                approval = getattr(result, "requires_human_approval", True)
+                return f"{action} on {target}" + (" (requires approval)" if approval else "")
+            if action:
+                return f"Proposed: {action}"
+
+        # If we got here, the agent-specific fields were empty.
+        # Use first sentence of reasoning as last resort from actual output.
+        if reasoning:
+            return reasoning.split(".")[0].strip()[:90]
+
+        # Genuinely empty — mark as unparseable
+        log.warning("agent_summary_empty", role=role, incident=context.id)
+        return f"Agent response produced no summary — see raw output"
+
     def _degraded_verdict(self, context: IncidentContext, reason: str) -> Verdict:
         """Emit a degraded escalation verdict when the agent cannot produce a
         normal judgment (e.g. model timeout, API error)."""
+        summary = self._build_degraded_summary(context)
         return self._emit_verdict(
             context,
-            subject_summary=f"{self.role.value} degraded — human takeover required",
+            subject_summary=summary,
             action="escalate",
             confidence=0.0,
             reasoning=f"Agent operating in degraded mode: {reason}",
             tags=["degraded", "human-takeover-required"],
         )
+
+    def _build_degraded_summary(self, context: IncidentContext) -> str:
+        """Build an informative degraded summary using available context data."""
+        role = self.role.value
+        meta = getattr(context, "metadata", {}) or {}
+        blast = meta.get("blast_radius", [])
+        root_causes = meta.get("root_causes", [])
+        severity = meta.get("severity", "?")
+        incident_id = getattr(context, "id", "unknown")
+        rc_service = root_causes[0].get("service", "unknown") if root_causes else "unknown"
+        rc_type = root_causes[0].get("type", "unknown") if root_causes else "unknown"
+        # Also try SLO info from the trigger verdicts
+        slo_info = ""
+        if rc_service != "unknown" and rc_type != "unknown":
+            slo_info = f"{rc_service} {rc_type}"
+
+        if role == "triage":
+            slo_info = f"{rc_service} {rc_type}" if rc_service != "unknown" else "incident"
+            return f"DEGRADED: SEV-{severity} — {slo_info}, {len(blast)} services in blast radius"
+        elif role == "investigation":
+            return f"DEGRADED: Manual investigation required — root cause from correlation: {rc_service} ({rc_type})"
+        elif role == "communication":
+            return f"DEGRADED: Draft status update required for {incident_id}"
+        elif role == "remediation":
+            return f"DEGRADED: Manual remediation required — see correlation verdict for recommended actions"
+        return f"DEGRADED: {role} — manual assessment required"
 
     # ------------------------------------------------------------------ #
     # Transport: governance                                                #
@@ -225,12 +364,16 @@ class AgentBase(ABC):
         try:
             system, user = self.build_prompt(context)
             response = await self._call_model(system, user)
+            body_preview = response if len(response) <= 800 else response[:800].rsplit(" ", 1)[0] + "..."
+            log.info("agent_response", role=self.role.value,
+                     response_length=len(response), body=body_preview)
             result = self.parse_response(response, context)
             context = self._apply_result(context, result)
             confidence = getattr(result, "root_cause_confidence", None) or getattr(result, "confidence", 0.5)
+            summary = self._build_summary(context, result)
             self._emit_verdict(
                 context,
-                subject_summary=f"{self.role.value} assessment",
+                subject_summary=summary,
                 action="flag",
                 confidence=confidence,
                 reasoning=getattr(result, "reasoning", ""),

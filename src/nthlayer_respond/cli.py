@@ -102,6 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     respond.add_argument("--verdict-store", default="verdicts.db", help="Path to verdict SQLite DB")
     respond.add_argument("--config", default="respond.yaml", help="Config file path")
     respond.add_argument("--notify", default="stdout", help="Notification target: stdout or webhook URL")
+    respond.add_argument("--model", default=None, help="Override model (e.g. 'openai/gpt-4o', 'anthropic/claude-sonnet-4-20250514')")
 
     return parser
 
@@ -202,22 +203,23 @@ def _build_incident_context(
     trigger_source = trigger["source"]
     now = datetime.now(tz=timezone.utc).isoformat()
 
-    if trigger_source == "sitrep":
+    # Accept legacy "sitrep" value from scenario YAML fixtures as alias
+    if trigger_source in ("nthlayer-correlate", "sitrep"):
         trigger_verdict_ids: list[str] = []
         if no_model:
             from nthlayer_learn import create as verdict_create
             v = verdict_create(
                 subject={"type": "correlation", "ref": incident_id,
-                         "summary": f"SitRep correlation for {scenario['id']}"},
+                         "summary": f"nthlayer-correlate correlation for {scenario['id']}"},
                 judgment={"action": "flag", "confidence": 0.9,
-                          "reasoning": "Mock SitRep correlation verdict for replay"},
-                producer={"system": "sitrep", "model": "mock"},
+                          "reasoning": "Mock nthlayer-correlate correlation verdict for replay"},
+                producer={"system": "nthlayer-correlate", "model": "mock"},
             )
             verdict_store.put(v)
             trigger_verdict_ids.append(v.id)
         else:
-            print("SitRep must be installed for sitrep-triggered scenarios: "
-                  "pip install -e ../sitrep")
+            print("nthlayer-correlate must be installed for correlation-triggered scenarios: "
+                  "pip install -e ../nthlayer-correlate")
             sys.exit(1)
 
         topology = {
@@ -231,7 +233,7 @@ def _build_incident_context(
         return IncidentContext(
             id=incident_id, state=IncidentState.TRIGGERED,
             created_at=now, updated_at=now,
-            trigger_source="sitrep", trigger_verdict_ids=trigger_verdict_ids,
+            trigger_source="nthlayer-correlate", trigger_verdict_ids=trigger_verdict_ids,
             topology=topology,
         )
 
@@ -551,8 +553,9 @@ def cmd_respond(args) -> None:
     trigger_custom = getattr(trigger.metadata, "custom", {}) or {}
     trigger_service = trigger.subject.ref or "unknown"
 
-    # Build topology from specs
+    # Build topology and service specs from specs directory
     topology = {"services": []}
+    service_specs: dict = {}  # name → full spec for prompt context
     specs_path = Path(args.specs_dir)
     if specs_path.is_dir():
         import yaml
@@ -565,12 +568,57 @@ def cmd_respond(args) -> None:
                 continue
             metadata = raw.get("metadata", {})
             spec = raw.get("spec", {})
+            name = metadata.get("name", spec_file.stem)
             deps = [d["name"] for d in spec.get("dependencies", []) if isinstance(d, dict)]
             topology["services"].append({
-                "name": metadata.get("name", spec_file.stem),
+                "name": name,
                 "tier": metadata.get("tier", "standard"),
                 "dependencies": deps,
             })
+            # Store the full spec for service context in prompts
+            service_specs[name] = {
+                "name": name,
+                "tier": metadata.get("tier", "standard"),
+                "team": metadata.get("team"),
+                "type": spec.get("type"),  # ai-gate, api, etc.
+                "slos": spec.get("slos", {}),
+                "dependencies": deps,
+            }
+
+    # Walk lineage to find the evaluation verdict with SLO details
+    eval_context = {}
+    corr_lineage_ctx = getattr(trigger.lineage, "context", []) or []
+    for eval_id in corr_lineage_ctx:
+        try:
+            ev = verdict_store.get(eval_id)
+            if ev and ev.subject.type == "evaluation":
+                ev_custom = getattr(ev.metadata, "custom", {}) or {}
+                eval_context = {
+                    "verdict_id": eval_id,
+                    "service": ev.subject.ref,
+                    "slo_name": ev_custom.get("slo_name"),
+                    "slo_type": ev_custom.get("slo_type"),
+                    "target": ev_custom.get("target"),
+                    "current_value": ev_custom.get("current_value"),
+                    "breach": ev_custom.get("breach"),
+                    "consecutive": ev_custom.get("consecutive"),
+                }
+                break
+        except Exception:
+            pass
+
+    # Build service context from spec + evaluation verdict
+    affected_service_spec = service_specs.get(trigger_service, {})
+    service_type = affected_service_spec.get("type", "unknown")
+    is_ai_gate = service_type == "ai-gate"
+
+    service_context = {
+        "service": trigger_service,
+        "service_type": service_type,
+        "is_ai_gate": is_ai_gate,
+        "spec": affected_service_spec,
+        "evaluation": eval_context,
+    }
 
     # Build incident context from correlation verdict
     now = datetime.now(tz=timezone.utc).isoformat()
@@ -590,7 +638,7 @@ def cmd_respond(args) -> None:
         state=IncidentState.TRIGGERED,
         created_at=now,
         updated_at=now,
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=[args.trigger_verdict],
         topology=topology,
         metadata={
@@ -598,6 +646,7 @@ def cmd_respond(args) -> None:
             "blast_radius": trigger_custom.get("blast_radius", []),
             "root_causes": trigger_custom.get("root_causes", []),
             "severity": severity,
+            "service_context": service_context,
         },
     )
 
@@ -610,8 +659,10 @@ def cmd_respond(args) -> None:
         from nthlayer_respond.config import RespondConfig
         config = RespondConfig()
 
-    # Override config verdict_store_path to match the CLI --verdict-store flag
+    # Override config from CLI flags
     config.verdict_store_path = args.verdict_store
+    if getattr(args, "model", None):
+        config.model = args.model
 
     async def _run():
         coord, ctx_store = _make_coordinator(config)

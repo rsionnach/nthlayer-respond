@@ -92,7 +92,7 @@ def context(verdict_store, triage_result, investigation_result):
         state=IncidentState.REMEDIATING,
         created_at="2026-03-19T10:00:00Z",
         updated_at="2026-03-19T10:10:00Z",
-        trigger_source="sitrep",
+        trigger_source="nthlayer-correlate",
         trigger_verdict_ids=[],
         topology={
             "services": [

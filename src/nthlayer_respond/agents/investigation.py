@@ -49,9 +49,9 @@ class InvestigationAgent(AgentBase):
             parts.append(f"  blast_radius={t.blast_radius}")
             parts.append(f"  affected_slos={t.affected_slos}")
 
-        # SitRep correlation verdicts
+        # nthlayer-correlate correlation verdicts
         if context.trigger_verdict_ids:
-            parts.append("\nSitRep correlation verdicts:")
+            parts.append("\nnthlayer-correlate correlation verdicts:")
             for vid in context.trigger_verdict_ids:
                 try:
                     v = self._verdict_store.get(vid)
@@ -65,6 +65,11 @@ class InvestigationAgent(AgentBase):
                 except Exception:  # noqa: BLE001
                     pass
 
+        # Service context from OpenSRM spec + evaluation verdict
+        svc_ctx = self._build_service_context_prompt(context)
+        if svc_ctx:
+            parts.append(svc_ctx)
+
         # Topology
         parts.append(f"\nTopology: {json.dumps(context.topology)}")
 
@@ -77,21 +82,25 @@ class InvestigationAgent(AgentBase):
         data = self._parse_json(response)
         threshold = self._config.get("root_cause_threshold", 0.7)
 
-        # Build hypotheses list
+        # Build hypotheses list — accept both "description" and "hypothesis" field names
         hypotheses: list[Hypothesis] = []
         for h in data.get("hypotheses") or []:
+            desc = h.get("description") or h.get("hypothesis") or h.get("summary", "")
+            raw_evidence = h.get("evidence") or []
+            if not raw_evidence and h.get("reasoning"):
+                raw_evidence = [h["reasoning"]]
             hypotheses.append(
                 Hypothesis(
-                    description=h.get("description", ""),
+                    description=desc,
                     confidence=float(h.get("confidence", 0.0)),
-                    evidence=list(h.get("evidence") or []),
+                    evidence=list(raw_evidence),
                     change_candidate=h.get("change_candidate"),
                 )
             )
 
         root_cause: str | None = data.get("root_cause")
-        root_cause_confidence: float = float(data.get("root_cause_confidence", 0.0))
-        reasoning: str = data.get("reasoning", "")
+        root_cause_confidence: float = float(data.get("root_cause_confidence") or data.get("confidence") or 0.0)
+        reasoning: str = data.get("reasoning", "") or data.get("analysis", "")
 
         # Mechanical threshold check: clear root_cause if confidence is below threshold
         if root_cause is not None and root_cause_confidence < threshold:
