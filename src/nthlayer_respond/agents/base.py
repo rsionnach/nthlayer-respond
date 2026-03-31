@@ -380,6 +380,8 @@ class AgentBase(ABC):
             )
             context = await self._post_execute(context, result)
         except Exception as exc:  # noqa: BLE001
+            log.warning("agent_execute_failed", role=self.role.value,
+                        error=str(exc), exc_info=True)
             self._degraded_verdict(context, str(exc))
         return context
 

@@ -10,13 +10,16 @@ import yaml
 logger = structlog.get_logger()
 
 
+import os
+
+
 @dataclass
 class RespondConfig:
     # Coordinator
     poll_interval_seconds: int = 30
     escalation_threshold: float = 0.3
-    # Agents
-    model: str = "claude-sonnet-4-20250514"
+    # Agents — NTHLAYER_MODEL env var takes precedence over hardcoded default
+    model: str = os.environ.get("NTHLAYER_MODEL", "claude-sonnet-4-20250514")
     max_tokens: int = 4096
     triage_timeout: int = 15
     investigation_timeout: int = 60
