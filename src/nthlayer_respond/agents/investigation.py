@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+from nthlayer_common.prompts import extract_confidence, load_prompt, render_user_prompt
 
 from nthlayer_respond.agents.base import AgentBase
+
+_PROMPT_PATH = Path(__file__).parent.parent.parent.parent / "prompts" / "investigation.yaml"
 from nthlayer_respond.types import (
     AgentRole,
     Hypothesis,
@@ -30,14 +35,8 @@ class InvestigationAgent(AgentBase):
     def build_prompt(self, context: IncidentContext) -> tuple[str, str]:
         threshold = self._config.get("root_cause_threshold", 0.7)
 
-        system = (
-            "You are an investigation agent. "
-            "Form hypotheses about root cause, rank by confidence. "
-            "Judgment SLO: 70% post-incident agreement. "
-            f"Only declare root_cause if your confidence exceeds {threshold}. "
-            "Otherwise leave root_cause null and list hypotheses. "
-            "Respond with ONLY valid JSON."
-        )
+        spec = load_prompt(_PROMPT_PATH)
+        system = render_user_prompt(spec.system, root_cause_threshold=str(threshold))
 
         parts: list[str] = []
 
@@ -73,7 +72,7 @@ class InvestigationAgent(AgentBase):
         # Topology
         parts.append(f"\nTopology: {json.dumps(context.topology)}")
 
-        user = "\n".join(parts)
+        user = render_user_prompt(spec.user_template, context="\n".join(parts))
         return system, user
 
     def parse_response(
@@ -106,11 +105,14 @@ class InvestigationAgent(AgentBase):
         if root_cause is not None and root_cause_confidence < threshold:
             root_cause = None
 
+        confidence = extract_confidence(data)
+
         return InvestigationResult(
             hypotheses=hypotheses,
             root_cause=root_cause,
             root_cause_confidence=root_cause_confidence,
             reasoning=reasoning,
+            confidence=confidence,
         )
 
     def _apply_result(

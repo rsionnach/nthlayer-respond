@@ -55,6 +55,7 @@ class InvestigationResult:
     root_cause: str | None
     root_cause_confidence: float
     reasoning: str
+    confidence: float | None = None
 
 
 @dataclass
@@ -69,6 +70,7 @@ class CommunicationUpdate:
 class CommunicationResult:
     updates_sent: list[CommunicationUpdate] = field(default_factory=list)
     reasoning: str = ""
+    confidence: float | None = None
 
 
 @dataclass
@@ -85,6 +87,7 @@ class RemediationResult:
     new_autonomy_level: str | None = None
     reasoning: str = ""
     autonomy_reduction: dict | None = None
+    confidence: float | None = None
 
 
 @dataclass

@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
+
+from nthlayer_common.prompts import extract_confidence, load_prompt, render_user_prompt
 
 from nthlayer_respond.agents.base import AgentBase
+
+_PROMPT_PATH = Path(__file__).parent.parent.parent.parent / "prompts" / "communication.yaml"
 from nthlayer_respond.types import (
     AgentRole,
     CommunicationResult,
@@ -30,14 +35,7 @@ class CommunicationAgent(AgentBase):
     # ------------------------------------------------------------------ #
 
     def build_prompt(self, context: IncidentContext) -> tuple[str, str]:
-        system = (
-            "You are a communication agent. "
-            "Draft incident communications. "
-            "You MUST NOT contradict investigation findings. "
-            "You MUST NOT communicate resolution until remediation is confirmed. "
-            "Judgment SLO: less than 15% human edit rate. "
-            "Respond with ONLY valid JSON."
-        )
+        spec = load_prompt(_PROMPT_PATH)
 
         # Service context from OpenSRM spec
         svc_ctx = self._build_service_context_prompt(context)
@@ -68,7 +66,7 @@ class CommunicationAgent(AgentBase):
         if svc_ctx:
             user = user + "\n" + svc_ctx
 
-        return system, user
+        return spec.system, user
 
     def parse_response(
         self, response: str, context: IncidentContext
@@ -103,7 +101,8 @@ class CommunicationAgent(AgentBase):
                 ))
 
         reasoning: str = data.get("reasoning", "") or data.get("rationale", "")
-        return CommunicationResult(updates_sent=updates, reasoning=reasoning)
+        confidence = extract_confidence(data)
+        return CommunicationResult(updates_sent=updates, reasoning=reasoning, confidence=confidence)
 
     def _apply_result(
         self, context: IncidentContext, result: CommunicationResult

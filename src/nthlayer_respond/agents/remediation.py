@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import json
 import structlog
+from pathlib import Path
+
+from nthlayer_common.prompts import extract_confidence, load_prompt, render_user_prompt
 
 from nthlayer_respond.agents.base import AgentBase
+
+_PROMPT_PATH = Path(__file__).parent.parent.parent.parent / "prompts" / "remediation.yaml"
 from nthlayer_respond.safe_actions.registry import SafeActionRegistry
 from nthlayer_respond.types import (
     AgentRole,
@@ -52,16 +57,10 @@ class RemediationAgent(AgentBase):
             f"{a['name']}: {a['description']}" for a in actions
         )
 
-        system = (
-            "You are a remediation agent. "
-            "Recommend fixes from the safe action registry ONLY. "
-            "You MUST NOT recommend novel actions. "
-            "Assess blast radius. "
-            "Judgment SLO: 80% fix success rate. "
-            f"Available safe actions: {action_names}. "
-            f"Action details: {action_descriptions}. "
-            "Respond with ONLY valid JSON."
-        )
+        spec = load_prompt(_PROMPT_PATH)
+        system = render_user_prompt(spec.system,
+            safe_action_names=str(action_names),
+            safe_action_descriptions=action_descriptions)
 
         parts: list[str] = []
 
@@ -96,7 +95,7 @@ class RemediationAgent(AgentBase):
         # Topology
         parts.append(f"\nTopology: {json.dumps(context.topology)}")
 
-        user = "\n".join(parts)
+        user = render_user_prompt(spec.user_template, context="\n".join(parts))
         return system, user
 
     def parse_response(
@@ -132,12 +131,15 @@ class RemediationAgent(AgentBase):
         else:
             registry_action = None
 
+        confidence = extract_confidence(data)
+
         result = RemediationResult(
             proposed_action=proposed_action,
             target=target,
             risk_assessment=risk_assessment,
             requires_human_approval=requires_human_approval,
             reasoning=reasoning,
+            confidence=confidence,
         )
 
         # Stash autonomy_reduction on the result for use in _post_execute
