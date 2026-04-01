@@ -1,21 +1,27 @@
 # src/nthlayer_respond/safe_actions/actions.py
-"""Built-in safe actions (Tier 1 stubs).
+"""Built-in safe actions — policy from YAML, handlers in Python.
 
-All handlers log intent and return simulated success.  Real integrations
-(kubectl, feature-flag API, etc.) are wired in later phases.
+The registry YAML (registry/safe-actions.yaml) defines which actions exist,
+their descriptions, risk levels, approval requirements, and applicability.
+This file provides the handler stubs and loads the YAML policy.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import structlog
+import yaml
 
 from nthlayer_respond.safe_actions.registry import SafeAction, SafeActionRegistry
 from nthlayer_respond.types import IncidentContext
 
 logger = structlog.get_logger(__name__)
 
+_REGISTRY_PATH = Path(__file__).parent.parent.parent.parent / "registry" / "safe-actions.yaml"
+
 
 # ------------------------------------------------------------------ #
-# Handler stubs                                                        #
+# Handler stubs (real integrations wired in later phases)              #
 # ------------------------------------------------------------------ #
 
 async def _rollback_handler(target: str, context: IncidentContext, **kwargs) -> dict:
@@ -29,90 +35,57 @@ async def _scale_up_handler(target: str, context: IncidentContext, **kwargs) -> 
 
 
 async def _disable_feature_flag_handler(target: str, context: IncidentContext, **kwargs) -> dict:
-    logger.info(
-        "[STUB] disable_feature_flag: would disable flag %r (incident %s)", target, context.id
-    )
+    logger.info("[STUB] disable_feature_flag: would disable flag", target=target, incident_id=context.id)
     return {"success": True, "detail": f"Feature flag {target!r} disabled (stub)."}
 
 
 async def _reduce_autonomy_handler(target: str, context: IncidentContext, **kwargs) -> dict:
-    logger.info(
-        "[STUB] reduce_autonomy: would reduce autonomy for arbiter %r (incident %s)",
-        target,
-        context.id,
-    )
+    logger.info("[STUB] reduce_autonomy: would reduce autonomy", target=target, incident_id=context.id)
     return {"success": True, "detail": f"Autonomy for {target!r} reduced (stub)."}
 
 
 async def _pause_pipeline_handler(target: str, context: IncidentContext, **kwargs) -> dict:
-    logger.info(
-        "[STUB] pause_pipeline: would pause pipeline %r (incident %s)", target, context.id
-    )
+    logger.info("[STUB] pause_pipeline: would pause pipeline", target=target, incident_id=context.id)
     return {"success": True, "detail": f"Pipeline {target!r} paused (stub)."}
 
 
+# Handler lookup — maps action name to its Python handler
+_HANDLERS = {
+    "rollback": _rollback_handler,
+    "scale_up": _scale_up_handler,
+    "disable_feature_flag": _disable_feature_flag_handler,
+    "reduce_autonomy": _reduce_autonomy_handler,
+    "pause_pipeline": _pause_pipeline_handler,
+}
+
+
 # ------------------------------------------------------------------ #
-# Registration                                                         #
+# Registration from YAML                                               #
 # ------------------------------------------------------------------ #
 
 def register_builtin_actions(registry: SafeActionRegistry) -> None:
-    """Register all five built-in Tier 1 safe actions into *registry*."""
-    registry.register(SafeAction(
-        name="rollback",
-        description=(
-            "Roll back a service to its previous stable deployment. "
-            "Use when a recent deployment is the suspected root cause."
-        ),
-        target_type="service",
-        requires_approval=True,
-        cooldown_seconds=300,
-        handler=_rollback_handler,
-    ))
+    """Load safe action policy from YAML and register with handlers."""
+    policy = load_safe_action_policy()
 
-    registry.register(SafeAction(
-        name="scale_up",
-        description=(
-            "Increase the replica count of a service to handle elevated load. "
-            "Use when error rate is driven by capacity exhaustion."
-        ),
-        target_type="service",
-        requires_approval=False,
-        cooldown_seconds=120,
-        handler=_scale_up_handler,
-    ))
+    for name, spec in policy.items():
+        handler = _HANDLERS.get(name)
+        if handler is None:
+            logger.warning("Safe action %r in YAML has no handler — skipping", name)
+            continue
 
-    registry.register(SafeAction(
-        name="disable_feature_flag",
-        description=(
-            "Disable a feature flag to revert to the previous behaviour. "
-            "Use when a recently enabled flag correlates with the incident."
-        ),
-        target_type="feature_flag",
-        requires_approval=True,
-        cooldown_seconds=60,
-        handler=_disable_feature_flag_handler,
-    ))
+        registry.register(SafeAction(
+            name=name,
+            description=spec.get("description", "").strip(),
+            target_type=spec.get("target_type", "service"),
+            requires_approval=spec.get("requires_approval", True),
+            cooldown_seconds=spec.get("cooldown_seconds", 300),
+            handler=handler,
+        ))
 
-    registry.register(SafeAction(
-        name="reduce_autonomy",
-        description=(
-            "Reduce the autonomy level of an Arbiter-governed agent. "
-            "Autonomy ratchet is one-way safe: can reduce, never increase without approval."
-        ),
-        target_type="arbiter",
-        requires_approval=False,
-        cooldown_seconds=0,
-        handler=_reduce_autonomy_handler,
-    ))
 
-    registry.register(SafeAction(
-        name="pause_pipeline",
-        description=(
-            "Pause a deployment or processing pipeline to stop further propagation. "
-            "Use when an in-progress rollout is worsening an incident."
-        ),
-        target_type="service",
-        requires_approval=True,
-        cooldown_seconds=60,
-        handler=_pause_pipeline_handler,
-    ))
+def load_safe_action_policy(path: Path | None = None) -> dict:
+    """Load the safe action policy YAML. Returns {name: spec_dict}."""
+    p = path or _REGISTRY_PATH
+    with open(p) as f:
+        raw = yaml.safe_load(f)
+    return raw.get("actions", {})

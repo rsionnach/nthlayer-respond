@@ -21,6 +21,25 @@ from nthlayer_respond.types import (
 logger = structlog.get_logger(__name__)
 
 
+def _format_safe_actions(policy: dict) -> str:
+    """Format safe action policy as context for the remediation prompt."""
+    lines = ["Available safe actions (you MUST choose from this list):"]
+    for name, spec in policy.items():
+        desc = spec.get("description", "").strip()
+        risk = spec.get("risk", "unknown")
+        approval = "requires approval" if spec.get("requires_approval") else "auto-approved"
+        applicable = spec.get("applicable_to", {})
+        modes = applicable.get("failure_modes", [])
+        lines.append(f"  - {name} ({risk} risk, {approval}): {desc}")
+        if modes:
+            lines.append(f"    Applicable to: {', '.join(modes)}")
+        not_applicable = spec.get("not_applicable_to")
+        if not_applicable:
+            reason = not_applicable.get("reason", "").strip()
+            lines.append(f"    NOT applicable to {not_applicable.get('service_types', [])}: {reason}")
+    return "\n".join(lines)
+
+
 class RemediationAgent(AgentBase):
     """Suggest and execute pre-approved safe actions.
 
@@ -51,16 +70,13 @@ class RemediationAgent(AgentBase):
     # ------------------------------------------------------------------ #
 
     def build_prompt(self, context: IncidentContext) -> tuple[str, str]:
-        actions = self._registry.list_actions()
-        action_names = [a["name"] for a in actions]
-        action_descriptions = "; ".join(
-            f"{a['name']}: {a['description']}" for a in actions
-        )
+        from nthlayer_respond.safe_actions.actions import load_safe_action_policy
+
+        policy = load_safe_action_policy()
+        safe_actions_text = _format_safe_actions(policy)
 
         spec = load_prompt(_PROMPT_PATH)
-        system = render_user_prompt(spec.system,
-            safe_action_names=str(action_names),
-            safe_action_descriptions=action_descriptions)
+        system = render_user_prompt(spec.system, safe_actions=safe_actions_text)
 
         parts: list[str] = []
 

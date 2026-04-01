@@ -7,8 +7,8 @@ system: |
   You MUST NOT recommend novel actions.
   Assess blast radius.
   Judgment SLO: 80% fix success rate.
-  Available safe actions: {{ safe_action_names }}.
-  Action details: {{ safe_action_descriptions }}.
+
+  {{ safe_actions }}
 
   {schema_block}
 
