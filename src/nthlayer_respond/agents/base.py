@@ -404,6 +404,8 @@ class AgentBase(ABC):
                 confidence=confidence,
                 reasoning=getattr(result, "reasoning", ""),
             )
+            # Slack notification (fail-open, opt-in via SLACK_WEBHOOK_URL)
+            await self._notify_slack(context)
             context = await self._post_execute(context, result)
         except Exception as exc:  # noqa: BLE001
             log.warning("agent_execute_failed", role=self.role.value,
@@ -416,6 +418,42 @@ class AgentBase(ABC):
     ) -> IncidentContext:
         """Hook called after a successful execute cycle. No-op by default."""
         return context
+
+    async def _notify_slack(self, context: IncidentContext) -> None:
+        """Send Slack notification for this agent's verdict. Fail-open."""
+        import os
+        if not os.environ.get("SLACK_WEBHOOK_URL"):
+            return
+        try:
+            from nthlayer_respond.notifications import send_slack_notification
+            from nthlayer_respond.notifications import (
+                build_triage_blocks,
+                build_remediation_blocks,
+                build_resolution_blocks,
+            )
+
+            role = self.role.value
+            builders = {
+                "triage": build_triage_blocks,
+                "remediation": build_remediation_blocks,
+            }
+            builder = builders.get(role)
+            if not builder or not context.verdict_chain:
+                return
+
+            # Get the most recent verdict (just emitted)
+            last_vid = context.verdict_chain[-1]
+            v = self._verdict_store.get(last_vid) if self._verdict_store else None
+            if not v:
+                return
+
+            await send_slack_notification(
+                v, builder,
+                verdict_store=self._verdict_store,
+                trigger_verdict_ids=context.trigger_verdict_ids,
+            )
+        except Exception:
+            log.warning("Slack notification failed", role=self.role.value, exc_info=True)
 
     # ------------------------------------------------------------------ #
     # Abstract judgment interface                                          #
