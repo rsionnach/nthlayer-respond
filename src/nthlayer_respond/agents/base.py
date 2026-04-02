@@ -169,6 +169,32 @@ class AgentBase(ABC):
 
         return "\n".join(lines)
 
+    def _prune_topology(self, topology: dict, relevant_services: list[str]) -> dict:
+        """Prune topology to relevant services + 1 hop of dependencies.
+
+        Reduces prompt token cost by excluding services not in the blast radius
+        or its immediate neighbourhood.
+        """
+        if not topology or not relevant_services:
+            return topology
+
+        services = topology.get("services", [])
+        if not services:
+            return topology
+
+        relevant = set(relevant_services)
+
+        # Add 1 hop: dependencies and dependents of relevant services
+        for svc in services:
+            name = svc.get("name", "")
+            if name in relevant:
+                for dep in svc.get("dependencies", []):
+                    dep_name = dep.get("name", dep) if isinstance(dep, dict) else dep
+                    relevant.add(dep_name)
+
+        pruned = [s for s in services if s.get("name", "") in relevant]
+        return {**topology, "services": pruned}
+
     def _build_summary(self, context: IncidentContext, result) -> str:
         """Build summary strictly from the agent's actual LLM output.
 

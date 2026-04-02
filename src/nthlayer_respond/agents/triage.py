@@ -59,7 +59,10 @@ class TriageAgent(AgentBase):
         if svc_ctx:
             parts.append(svc_ctx)
 
-        parts.append(f"\nTopology: {json.dumps(context.topology)}")
+        # Prune topology to trigger service + 1 hop (reduces prompt tokens)
+        trigger_svc = (context.metadata or {}).get("trigger_service", "")
+        pruned = self._prune_topology(context.topology, [trigger_svc]) if trigger_svc else context.topology
+        parts.append(f"\nTopology: {json.dumps(pruned)}")
 
         user = render_user_prompt(spec.user_template, context="\n".join(parts))
         return spec.system, user

@@ -70,7 +70,10 @@ class InvestigationAgent(AgentBase):
             parts.append(svc_ctx)
 
         # Topology
-        parts.append(f"\nTopology: {json.dumps(context.topology)}")
+        # Prune topology to blast radius + 1 hop
+        relevant = context.triage.blast_radius if context.triage else []
+        pruned = self._prune_topology(context.topology, relevant) if relevant else context.topology
+        parts.append(f"\nTopology: {json.dumps(pruned)}")
 
         user = render_user_prompt(spec.user_template, context="\n".join(parts))
         return system, user
