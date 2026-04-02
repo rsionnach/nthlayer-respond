@@ -49,7 +49,7 @@ async def _pause_pipeline_handler(target: str, context: IncidentContext, **kwarg
     return {"success": True, "detail": f"Pipeline {target!r} paused (stub)."}
 
 
-# Handler lookup — maps action name to its Python handler
+# Handler lookup — maps action name to its Python stub handler
 _HANDLERS = {
     "rollback": _rollback_handler,
     "scale_up": _scale_up_handler,
@@ -60,17 +60,65 @@ _HANDLERS = {
 
 
 # ------------------------------------------------------------------ #
+# Webhook handler factory                                              #
+# ------------------------------------------------------------------ #
+
+def _make_webhook_handler(binding_config: dict):
+    """Create an async handler that dispatches via WebhookDispatcher."""
+    from nthlayer_respond.safe_actions.webhook import WebhookDispatcher
+
+    dispatcher = WebhookDispatcher()
+
+    async def handler(target: str, context: IncidentContext, **kwargs) -> dict:
+        variables = _build_variables(target, context, kwargs)
+        result = await dispatcher.execute(binding_config, variables)
+        return {
+            "success": result.success,
+            "detail": result.detail,
+            "status_code": result.status_code,
+            "verified": result.verified,
+            "verification_detail": result.verification_detail,
+        }
+
+    return handler
+
+
+def _build_variables(target: str, context: IncidentContext, kwargs: dict) -> dict[str, str]:
+    """Build template variable dict from execution context."""
+    variables = {
+        "service": target,
+        "target": target,
+        "incident_id": getattr(context, "id", "unknown"),
+    }
+    if hasattr(context, "triage") and context.triage:
+        variables["severity"] = str(context.triage.severity)
+    for k, v in kwargs.items():
+        if isinstance(v, str):
+            variables[k] = v
+    return variables
+
+
+# ------------------------------------------------------------------ #
 # Registration from YAML                                               #
 # ------------------------------------------------------------------ #
 
 def register_builtin_actions(registry: SafeActionRegistry) -> None:
-    """Load safe action policy from YAML and register with handlers."""
+    """Load safe action policy from YAML and register with handlers.
+
+    If an action has a binding (not 'stub'), use the webhook dispatcher.
+    Otherwise fall back to the Python stub handler.
+    """
     policy = load_safe_action_policy()
 
     for name, spec in policy.items():
-        handler = _HANDLERS.get(name)
-        if handler is None:
-            logger.warning("Safe action %r in YAML has no handler — skipping", name)
+        binding = spec.get("binding")
+
+        if binding and binding != "stub":
+            handler = _make_webhook_handler(binding)
+        elif name in _HANDLERS:
+            handler = _HANDLERS[name]
+        else:
+            logger.warning("Safe action %r has no binding or stub handler — skipping", name)
             continue
 
         registry.register(SafeAction(

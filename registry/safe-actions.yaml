@@ -21,6 +21,27 @@ actions:
       Reverts the service to a previous version. Active connections
       may be interrupted. Downstream services see a brief disruption.
     estimated_recovery: "2-5 minutes"
+    binding:
+      method: webhook
+      url: "https://argocd.internal/api/v1/applications/{{service}}/rollback"
+      headers:
+        Authorization: "Bearer ${ARGOCD_TOKEN}"
+        Content-Type: "application/json"
+      body:
+        revision: "{{previous_revision}}"
+        prune: true
+      timeout: 30
+      retry:
+        attempts: 3
+        backoff: [1, 2, 4]
+      verify_after:
+        wait: 60
+        prometheus_url: "${PROMETHEUS_URL}"
+        query: >
+          rate(http_server_request_duration_count{service="{{service}}", status=~"5.."}[2m])
+          / rate(http_server_request_duration_count{service="{{service}}"}[2m])
+          < 0.01
+        description: "error rate below 1% within 60s of rollback"
 
   scale_up:
     description: >
@@ -42,6 +63,7 @@ actions:
       Adds replicas. No disruption to existing traffic.
       Cost increases proportionally.
     estimated_recovery: "1-3 minutes"
+    binding: stub
 
   disable_feature_flag:
     description: >
@@ -58,6 +80,7 @@ actions:
       Reverts the feature to its previous state for all users.
       May affect user experience if the flag controlled a visible feature.
     estimated_recovery: "< 1 minute"
+    binding: stub
 
   reduce_autonomy:
     description: >
@@ -80,6 +103,7 @@ actions:
       human review. No service disruption — only decision throughput
       may decrease.
     estimated_recovery: "Immediate (autonomy change is instant)"
+    binding: stub
 
   pause_pipeline:
     description: >
@@ -97,3 +121,4 @@ actions:
       Stops new deployments or pipeline runs. In-flight work
       completes but no new work starts. May delay scheduled releases.
     estimated_recovery: "Immediate (pause takes effect within seconds)"
+    binding: stub
