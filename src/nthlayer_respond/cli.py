@@ -61,8 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     # serve
-    serve = sub.add_parser("serve", help="Start polling loop")
+    serve = sub.add_parser("serve", help="Start approval server")
     serve.add_argument("--config", default="respond.yaml", help="Config file path")
+    serve.add_argument("--host", default=None, help="Override server host")
+    serve.add_argument("--port", type=int, default=None, help="Override server port")
 
     # status
     status = sub.add_parser("status", help="Show active incidents")
@@ -458,10 +460,34 @@ def _status_command(config_path: str) -> None:
         store.close()
 
 
-def _serve_command(config_path: str) -> None:
-    """Start the polling loop (stub)."""
-    print(f"[nthlayer-respond serve] Not yet implemented. Config: {config_path}")
-    sys.exit(0)
+def _serve_command(config_path: str, host: str | None = None, port: int | None = None) -> None:
+    """Start the approval server."""
+    import uvicorn
+
+    config = load_config(config_path)
+    if host:
+        config.server_host = host
+    if port:
+        config.server_port = port
+
+    coordinator, ctx_store = _make_coordinator(config)
+
+    from nthlayer_respond.server import ApprovalServer
+
+    server = ApprovalServer(coordinator, ctx_store, config)
+    app = server.build_app()
+
+    @app.on_event("startup")
+    async def startup():
+        await server.recover_pending_approvals()
+
+    print(f"[nthlayer-respond serve] Starting on {config.server_host}:{config.server_port}")
+    uvicorn.run(
+        app,
+        host=config.server_host,
+        port=config.server_port,
+        log_level="info",
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -479,7 +505,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.command == "serve":
-        _serve_command(args.config)
+        _serve_command(args.config, host=args.host, port=args.port)
 
     elif args.command == "status":
         _status_command(args.config)
