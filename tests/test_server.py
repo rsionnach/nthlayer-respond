@@ -1,7 +1,11 @@
 """Tests for ApprovalServer HTTP routes."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import time
+import urllib.parse
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -168,3 +172,141 @@ def test_get_incident_not_found(client):
     """GET nonexistent incident returns 404."""
     resp = client.get("/api/v1/incidents/INC-MISSING")
     assert resp.status_code == 404
+
+
+# --- Slack interaction tests ---
+
+
+def _make_slack_signature(secret: str, body: bytes) -> tuple[str, str]:
+    """Generate a valid Slack signature and timestamp."""
+    timestamp = str(int(time.time()))
+    sig_basestring = f"v0:{timestamp}:{body.decode()}"
+    sig = "v0=" + hmac.new(
+        secret.encode(), sig_basestring.encode(), hashlib.sha256
+    ).hexdigest()
+    return timestamp, sig
+
+
+@pytest.fixture
+def config_with_slack():
+    return RespondConfig(
+        approval_timeout_seconds=900,
+        slack_signing_secret="test-signing-secret",
+        slack_bot_token="xoxb-test-token",
+    )
+
+
+@pytest.fixture
+def server_with_slack(mock_coordinator, context_store, config_with_slack):
+    return ApprovalServer(mock_coordinator, context_store, config_with_slack)
+
+
+@pytest.fixture
+def client_with_slack(server_with_slack):
+    return TestClient(server_with_slack.build_app())
+
+
+def test_slack_approve_interaction(
+    client_with_slack, mock_coordinator, context_store
+):
+    """Slack approve button triggers coordinator.approve."""
+    ctx = _awaiting_context()
+    context_store.save(ctx)
+
+    resolved_ctx = _awaiting_context()
+    resolved_ctx.state = IncidentState.RESOLVED
+    mock_coordinator.approve = AsyncMock(return_value=resolved_ctx)
+
+    payload = json.dumps({
+        "type": "block_actions",
+        "user": {"id": "U12345", "name": "rob"},
+        "actions": [{"action_id": "approve", "value": "INC-TEST-001"}],
+        "channel": {"id": "C12345"},
+        "message": {"ts": "1234567890.123456"},
+    })
+    body = f"payload={urllib.parse.quote(payload)}".encode()
+    timestamp, signature = _make_slack_signature("test-signing-secret", body)
+
+    resp = client_with_slack.post(
+        "/api/v1/slack/interactions",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": timestamp,
+            "X-Slack-Signature": signature,
+        },
+    )
+    assert resp.status_code == 200
+    mock_coordinator.approve.assert_called_once_with(
+        "INC-TEST-001", approved_by="rob"
+    )
+
+
+def test_slack_reject_interaction(
+    client_with_slack, mock_coordinator, context_store
+):
+    """Slack reject button triggers coordinator.reject."""
+    ctx = _awaiting_context()
+    context_store.save(ctx)
+
+    escalated_ctx = _awaiting_context()
+    escalated_ctx.state = IncidentState.ESCALATED
+    mock_coordinator.reject = AsyncMock(return_value=escalated_ctx)
+
+    payload = json.dumps({
+        "type": "block_actions",
+        "user": {"id": "U12345", "name": "rob"},
+        "actions": [{"action_id": "reject", "value": "INC-TEST-001"}],
+        "channel": {"id": "C12345"},
+        "message": {"ts": "1234567890.123456"},
+    })
+    body = f"payload={urllib.parse.quote(payload)}".encode()
+    timestamp, signature = _make_slack_signature("test-signing-secret", body)
+
+    resp = client_with_slack.post(
+        "/api/v1/slack/interactions",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": timestamp,
+            "X-Slack-Signature": signature,
+        },
+    )
+    assert resp.status_code == 200
+    mock_coordinator.reject.assert_called_once_with(
+        "INC-TEST-001", "Rejected via Slack by rob", rejected_by="rob"
+    )
+
+
+def test_slack_interaction_invalid_signature(client_with_slack):
+    """Invalid Slack signature returns 401."""
+    payload = json.dumps({"type": "block_actions", "actions": []})
+    body = f"payload={urllib.parse.quote(payload)}".encode()
+
+    resp = client_with_slack.post(
+        "/api/v1/slack/interactions",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": str(int(time.time())),
+            "X-Slack-Signature": "v0=invalid",
+        },
+    )
+    assert resp.status_code == 401
+
+
+def test_slack_interaction_no_signing_secret(client, mock_coordinator):
+    """Without signing_secret configured, Slack endpoint returns 403."""
+    payload = json.dumps({
+        "type": "block_actions",
+        "user": {"name": "rob"},
+        "actions": [{"action_id": "approve", "value": "INC-TEST-001"}],
+    })
+    body = f"payload={urllib.parse.quote(payload)}".encode()
+
+    resp = client.post(
+        "/api/v1/slack/interactions",
+        content=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert resp.status_code == 403

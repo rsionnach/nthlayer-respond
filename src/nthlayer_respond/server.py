@@ -147,11 +147,101 @@ class ApprovalServer:
         return JSONResponse(result)
 
     async def handle_slack_interaction(self, request: Request) -> Response:
-        """POST /api/v1/slack/interactions — Slack callback endpoint.
+        """POST /api/v1/slack/interactions — Slack callback endpoint."""
+        signing_secret = self._config.slack_signing_secret
+        if not signing_secret:
+            return Response(
+                content=json.dumps({"error": "Slack signing secret not configured"}),
+                status_code=403,
+                media_type="application/json",
+            )
 
-        Placeholder — full implementation in Task 7.
-        """
+        body = await request.body()
+        timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+        signature = request.headers.get("X-Slack-Signature", "")
+
+        from nthlayer_common.slack_web import SlackWebClient
+
+        if not SlackWebClient.verify_signature(signing_secret, timestamp, body, signature):
+            return Response(status_code=401)
+
+        # Slack sends payload as form-encoded
+        form = await request.form()
+        payload_str = form.get("payload", "")
+        try:
+            payload = json.loads(payload_str)
+        except (json.JSONDecodeError, TypeError):
+            return Response(status_code=400)
+
+        actions = payload.get("actions", [])
+        if not actions:
+            return Response(status_code=200)
+
+        action = actions[0]
+        action_id = action.get("action_id")
+        incident_id = action.get("value")
+        user_name = payload.get("user", {}).get("name", "unknown")
+        channel_id = payload.get("channel", {}).get("id")
+        message_ts = payload.get("message", {}).get("ts")
+
+        try:
+            if action_id == "approve":
+                ctx = await self._coordinator.approve(
+                    incident_id, approved_by=user_name
+                )
+            elif action_id == "reject":
+                ctx = await self._coordinator.reject(
+                    incident_id,
+                    f"Rejected via Slack by {user_name}",
+                    rejected_by=user_name,
+                )
+            else:
+                return Response(status_code=200)
+        except ValueError as exc:
+            logger.warning("Slack interaction failed: %s", exc)
+            return Response(status_code=200)  # Slack expects 200
+
+        self.cancel_timeout(incident_id)
+
+        # Update original message to remove buttons (fire-and-forget)
+        if self._config.slack_bot_token and channel_id and message_ts:
+            asyncio.create_task(
+                self._update_slack_message(
+                    channel_id, message_ts, action_id, user_name, ctx
+                )
+            )
+
         return Response(status_code=200)
+
+    async def _update_slack_message(
+        self,
+        channel_id: str,
+        message_ts: str,
+        action_id: str,
+        user_name: str,
+        ctx: Any,
+    ) -> None:
+        """Replace buttons with confirmation text in the original Slack message."""
+        from nthlayer_common.slack_web import SlackWebClient
+
+        client = SlackWebClient(self._config.slack_bot_token)
+
+        if action_id == "approve":
+            status_text = f"\u2705 Approved by @{user_name}"
+        else:
+            status_text = f"\u274c Rejected by @{user_name}"
+
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*{status_text}*"}},
+            {"type": "context", "elements": [
+                {"type": "mrkdwn", "text": f"State: {ctx.state.value} \u00b7 nthlayer-respond"},
+            ]},
+        ]
+
+        try:
+            await client.update_message(channel_id, message_ts, blocks, status_text)
+        except Exception as exc:
+            logger.warning("Slack message update failed: %s", exc)
 
     def start_timeout(self, incident_id: str) -> None:
         """Start a background timeout task for an incident."""
