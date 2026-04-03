@@ -529,6 +529,80 @@ async def test_reject_wrong_state_raises(
         await coord.reject("INC-2026-0001", "reason")
 
 
+async def test_approve_records_approved_by(
+    make_coordinator, context_store, verdict_store, triggered_context
+):
+    """approve(approved_by=...) stores identity in verdict metadata."""
+
+    async def remediation_needs_approval(ctx):
+        ctx.remediation = RemediationResult(
+            proposed_action="rollback",
+            target="payment-api",
+            requires_human_approval=True,
+            reasoning="needs approval",
+        )
+        ctx.verdict_chain.append("vrd-remediation")
+        return ctx
+
+    approval_agent = make_mock_agent(
+        AgentRole.REMEDIATION, side_effect=remediation_needs_approval
+    )
+    mock_registry = AsyncMock()
+    mock_registry.execute = AsyncMock(
+        return_value={"success": True, "detail": "rolled back"}
+    )
+    approval_agent._registry = mock_registry
+
+    coord = make_coordinator({AgentRole.REMEDIATION: approval_agent})
+    await coord.run(triggered_context)
+
+    result = await coord.approve("INC-2026-0001", approved_by="rob@nthlayer.com")
+    assert result.state == IncidentState.RESOLVED
+
+    # The last verdict in the chain should have approved_by in metadata
+    last_verdict_id = result.verdict_chain[-1]
+    verdict = verdict_store.get(last_verdict_id)
+    custom = getattr(verdict.metadata, "custom", {}) or {}
+    assert custom.get("approved_by") == "rob@nthlayer.com"
+    assert "rob@nthlayer.com" in verdict.judgment.reasoning
+
+
+async def test_reject_records_rejected_by(
+    make_coordinator, context_store, verdict_store, triggered_context
+):
+    """reject(rejected_by=...) stores identity in verdict metadata."""
+    v = verdict_create(
+        subject={"type": "remediation", "ref": "INC-2026-0001", "summary": "rollback"},
+        judgment={"action": "approve", "confidence": 0.8, "reasoning": "rollback recommended"},
+        producer={"system": "nthlayer-respond"},
+    )
+    verdict_store.put(v)
+
+    async def remediation_needs_approval(ctx):
+        ctx.remediation = RemediationResult(
+            proposed_action="rollback",
+            target="payment-api",
+            requires_human_approval=True,
+            reasoning="needs approval",
+        )
+        ctx.verdict_chain.append(v.id)
+        return ctx
+
+    approval_agent = make_mock_agent(
+        AgentRole.REMEDIATION, side_effect=remediation_needs_approval
+    )
+    coord = make_coordinator({AgentRole.REMEDIATION: approval_agent})
+    await coord.run(triggered_context)
+
+    result = await coord.reject(
+        "INC-2026-0001", "Wrong service", rejected_by="rob@nthlayer.com"
+    )
+    assert result.state == IncidentState.ESCALATED
+
+    resolved = verdict_store.get(v.id)
+    assert "rob@nthlayer.com" in (resolved.outcome.override.reasoning or "")
+
+
 # ------------------------------------------------------------------ #
 # Second communication skip                                            #
 # ------------------------------------------------------------------ #
