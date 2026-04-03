@@ -1,6 +1,7 @@
 """Tests for ApprovalServer HTTP routes."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -310,3 +311,64 @@ def test_slack_interaction_no_signing_secret(client, mock_coordinator):
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     assert resp.status_code == 403
+
+
+# --- Approval timeout tests ---
+
+
+async def test_timeout_auto_rejects():
+    """Timeout task calls coordinator.reject with system/timeout."""
+    mock_coord = AsyncMock()
+    escalated_ctx = _awaiting_context()
+    escalated_ctx.state = IncidentState.ESCALATED
+    mock_coord.reject = AsyncMock(return_value=escalated_ctx)
+
+    store = MagicMock()
+    ctx = _awaiting_context()
+    store.load.return_value = ctx
+
+    config = RespondConfig(approval_timeout_seconds=0)  # immediate timeout
+    server = ApprovalServer(mock_coord, store, config)
+
+    server.start_timeout("INC-TEST-001")
+    await asyncio.sleep(0.1)  # Let the task fire
+
+    mock_coord.reject.assert_called_once()
+    call_args = mock_coord.reject.call_args
+    assert call_args[0][0] == "INC-TEST-001"
+    assert "timed out" in call_args[0][1].lower()
+    assert call_args[1]["rejected_by"] == "system/timeout"
+
+
+async def test_cancel_timeout_prevents_reject():
+    """Cancelling timeout before it fires prevents rejection."""
+    mock_coord = AsyncMock()
+    store = MagicMock()
+    store.load.return_value = _awaiting_context()
+
+    config = RespondConfig(approval_timeout_seconds=10)
+    server = ApprovalServer(mock_coord, store, config)
+
+    server.start_timeout("INC-TEST-001")
+    server.cancel_timeout("INC-TEST-001")
+    await asyncio.sleep(0.1)
+
+    mock_coord.reject.assert_not_called()
+
+
+async def test_timeout_skips_already_resolved():
+    """Timeout does nothing if incident is no longer AWAITING_APPROVAL."""
+    mock_coord = AsyncMock()
+    store = MagicMock()
+
+    resolved_ctx = _awaiting_context()
+    resolved_ctx.state = IncidentState.RESOLVED
+    store.load.return_value = resolved_ctx
+
+    config = RespondConfig(approval_timeout_seconds=0)
+    server = ApprovalServer(mock_coord, store, config)
+
+    server.start_timeout("INC-TEST-001")
+    await asyncio.sleep(0.1)
+
+    mock_coord.reject.assert_not_called()
