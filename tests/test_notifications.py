@@ -66,3 +66,37 @@ def test_build_approval_blocks_fallback_text():
     verdict = _make_verdict()
     _, text = build_approval_blocks(verdict, "INC-FRAUD-20260403")
     assert "APPROVAL REQUIRED" in text
+
+
+def test_resolve_slack_channel_from_context():
+    """resolve_slack_channel reads from service context manifest ownership."""
+    from nthlayer_respond.notifications import resolve_slack_channel
+
+    context = MagicMock()
+    context.metadata = {
+        "service_context": {
+            "spec": {
+                "ownership": {"slack_channel": "C-PAYMENTS"},
+            }
+        }
+    }
+    assert resolve_slack_channel(context) == "C-PAYMENTS"
+
+
+def test_resolve_slack_channel_fallback_to_env(monkeypatch):
+    """resolve_slack_channel falls back to SLACK_CHANNEL_ID env var."""
+    from nthlayer_respond.notifications import resolve_slack_channel
+
+    monkeypatch.setenv("SLACK_CHANNEL_ID", "C-DEFAULT")
+    context = MagicMock()
+    context.metadata = {}
+    assert resolve_slack_channel(context) == "C-DEFAULT"
+
+
+def test_resolve_slack_channel_returns_none():
+    """resolve_slack_channel returns None when no channel configured."""
+    from nthlayer_respond.notifications import resolve_slack_channel
+
+    context = MagicMock()
+    context.metadata = {}
+    assert resolve_slack_channel(context, env_fallback="") is None

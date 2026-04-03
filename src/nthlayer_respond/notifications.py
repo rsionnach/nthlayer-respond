@@ -150,6 +150,26 @@ def find_slack_thread_ts(verdict_store, verdict_ids: list[str]) -> str | None:
     return None
 
 
+def resolve_slack_channel(context, env_fallback: str | None = None) -> str | None:
+    """Resolve Slack channel ID from service manifest or env var.
+
+    Resolution order:
+    1. Manifest metadata.service_context.spec.ownership.slack_channel
+    2. SLACK_CHANNEL_ID env var (or env_fallback if provided)
+    3. None (no channel configured)
+    """
+    service_ctx = context.metadata.get("service_context", {}) if isinstance(context.metadata, dict) else {}
+    spec = service_ctx.get("spec", {})
+    ownership = spec.get("ownership", {})
+    channel = ownership.get("slack_channel")
+    if channel:
+        return channel
+
+    if env_fallback is not None:
+        return env_fallback or None
+    return os.environ.get("SLACK_CHANNEL_ID") or None
+
+
 async def send_slack_notification(
     verdict,
     block_builder,
