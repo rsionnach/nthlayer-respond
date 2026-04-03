@@ -34,6 +34,14 @@ class RespondConfig:
     context_store_path: str = "respond-incidents.db"
     # Topology
     manifests_dir: str | None = None
+    # Server
+    server_host: str = "0.0.0.0"
+    server_port: int = 8090
+    # Approval
+    approval_timeout_seconds: int = 900
+    # Slack (interactive buttons)
+    slack_signing_secret: str = ""
+    slack_bot_token: str = ""
 
 
 def load_config(path: str) -> RespondConfig:
@@ -51,6 +59,9 @@ def load_config(path: str) -> RespondConfig:
     verdict = data.get("verdict", {}).get("store", {})
     ctx_store = data.get("context_store", {})
     topo = data.get("topology", {})
+    server = data.get("server", {})
+    approval = data.get("approval", {})
+    slack = data.get("slack", {})
 
     poll_interval = coord.get("poll_interval_seconds", 30)
     escalation_thresh = coord.get("escalation_threshold", 0.3)
@@ -74,4 +85,9 @@ def load_config(path: str) -> RespondConfig:
         verdict_store_path=verdict.get("path", "verdicts.db"),
         context_store_path=ctx_store.get("path", "respond-incidents.db"),
         manifests_dir=topo.get("manifests_dir"),
+        server_host=server.get("host", "0.0.0.0"),
+        server_port=int(server.get("port", 8090)),
+        approval_timeout_seconds=int(approval.get("timeout_seconds", 900)),
+        slack_signing_secret=slack.get("signing_secret", ""),
+        slack_bot_token=slack.get("bot_token", ""),
     )

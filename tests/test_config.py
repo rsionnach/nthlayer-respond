@@ -64,3 +64,34 @@ def test_load_config_partial_yaml(tmp_path):
     cfg = load_config(str(config_file))
     assert cfg.poll_interval_seconds == 5
     assert cfg.model == "claude-sonnet-4-20250514"  # default preserved
+
+
+def test_server_config_defaults():
+    """RespondConfig has server/approval/slack defaults."""
+    config = RespondConfig()
+    assert config.server_host == "0.0.0.0"
+    assert config.server_port == 8090
+    assert config.approval_timeout_seconds == 900
+    assert config.slack_signing_secret == ""
+    assert config.slack_bot_token == ""
+
+
+def test_load_config_server_section(tmp_path):
+    """load_config reads server, approval, and slack sections."""
+    cfg_path = tmp_path / "respond.yaml"
+    cfg_path.write_text("""
+server:
+  host: "127.0.0.1"
+  port: 9090
+approval:
+  timeout_seconds: 600
+slack:
+  signing_secret: "test-secret"
+  bot_token: "xoxb-test-token"
+""")
+    config = load_config(str(cfg_path))
+    assert config.server_host == "127.0.0.1"
+    assert config.server_port == 9090
+    assert config.approval_timeout_seconds == 600
+    assert config.slack_signing_secret == "test-secret"
+    assert config.slack_bot_token == "xoxb-test-token"
