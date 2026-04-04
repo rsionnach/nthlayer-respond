@@ -8,6 +8,7 @@ on escalation / human approval.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -287,6 +288,7 @@ class Coordinator:
                     and context.remediation.requires_human_approval
                 ):
                     context.state = IncidentState.AWAITING_APPROVAL
+                    context.updated_at = datetime.now(timezone.utc).isoformat()
                     self._context_store.save(context)
                     return context
 

@@ -64,7 +64,10 @@ class ApprovalServer:
     async def handle_approve(self, request: Request) -> JSONResponse:
         """POST /api/v1/incidents/{id}/approve"""
         incident_id = request.path_params["incident_id"]
-        body = await request.json() if await request.body() else {}
+        try:
+            body = await request.json() if await request.body() else {}
+        except (json.JSONDecodeError, ValueError):
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
         approved_by = body.get("approved_by")
 
         try:
@@ -92,7 +95,10 @@ class ApprovalServer:
     async def handle_reject(self, request: Request) -> JSONResponse:
         """POST /api/v1/incidents/{id}/reject"""
         incident_id = request.path_params["incident_id"]
-        body = await request.json() if await request.body() else {}
+        try:
+            body = await request.json() if await request.body() else {}
+        except (json.JSONDecodeError, ValueError):
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
         reason = body.get("reason")
         rejected_by = body.get("rejected_by")
 
