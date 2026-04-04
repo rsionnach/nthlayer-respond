@@ -56,6 +56,7 @@ def _from_dict(data: dict) -> IncidentContext:
             root_cause=inv.get("root_cause"),
             root_cause_confidence=inv.get("root_cause_confidence", 0.0),
             reasoning=inv.get("reasoning", ""),
+            confidence=inv.get("confidence"),
         )
 
     communication: CommunicationResult | None = None
@@ -65,6 +66,7 @@ def _from_dict(data: dict) -> IncidentContext:
         communication = CommunicationResult(
             updates_sent=updates_sent,
             reasoning=comm.get("reasoning", ""),
+            confidence=comm.get("confidence"),
         )
 
     remediation: RemediationResult | None = None

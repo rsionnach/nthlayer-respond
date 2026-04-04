@@ -372,3 +372,144 @@ async def test_timeout_skips_already_resolved():
     await asyncio.sleep(0.1)
 
     mock_coord.reject.assert_not_called()
+
+
+# --- Malformed JSON body tests ---
+
+
+def test_approve_malformed_json(client, mock_coordinator):
+    """POST approve with invalid JSON body returns 400."""
+    resp = client.post(
+        "/api/v1/incidents/INC-TEST-001/approve",
+        content=b"not valid json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400
+    assert "Invalid JSON" in resp.json()["error"]
+
+
+def test_reject_malformed_json(client, mock_coordinator):
+    """POST reject with invalid JSON body returns 400."""
+    resp = client.post(
+        "/api/v1/incidents/INC-TEST-001/reject",
+        content=b"{broken",
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400
+    assert "Invalid JSON" in resp.json()["error"]
+
+
+# --- Recover pending approvals tests ---
+
+
+async def test_recover_pending_approvals_starts_timeout():
+    """recover_pending_approvals starts timeout for awaiting incidents."""
+    mock_coord = AsyncMock()
+    store = MagicMock()
+
+    ctx = _awaiting_context()
+    # Set updated_at to 1 second ago so there's plenty of remaining time
+    from datetime import datetime, timezone
+    ctx.updated_at = datetime.now(tz=timezone.utc).isoformat()
+
+    store.list_active.return_value = ["INC-TEST-001"]
+    store.load.return_value = ctx
+
+    config = RespondConfig(approval_timeout_seconds=300)
+    server = ApprovalServer(mock_coord, store, config)
+
+    await server.recover_pending_approvals()
+
+    # Should have started a timeout
+    assert "INC-TEST-001" in server._timeouts
+    # Clean up
+    server.cancel_timeout("INC-TEST-001")
+
+
+async def test_recover_pending_approvals_expired_immediately_rejects():
+    """recover_pending_approvals auto-rejects already-expired incidents."""
+    mock_coord = AsyncMock()
+    escalated = _awaiting_context()
+    escalated.state = IncidentState.ESCALATED
+    mock_coord.reject = AsyncMock(return_value=escalated)
+
+    store = MagicMock()
+    ctx = _awaiting_context()
+    # Set updated_at to 20 minutes ago (well past 15 min timeout)
+    from datetime import datetime, timezone, timedelta
+    ctx.updated_at = (datetime.now(tz=timezone.utc) - timedelta(minutes=20)).isoformat()
+
+    store.list_active.return_value = ["INC-TEST-001"]
+    store.load.return_value = ctx
+
+    config = RespondConfig(approval_timeout_seconds=900)
+    server = ApprovalServer(mock_coord, store, config)
+
+    await server.recover_pending_approvals()
+
+    mock_coord.reject.assert_called_once()
+    call_args = mock_coord.reject.call_args
+    assert "expired during server downtime" in call_args[0][1]
+
+
+async def test_recover_pending_approvals_skips_non_awaiting():
+    """recover_pending_approvals skips incidents not in AWAITING_APPROVAL."""
+    mock_coord = AsyncMock()
+    store = MagicMock()
+
+    resolved_ctx = _awaiting_context()
+    resolved_ctx.state = IncidentState.RESOLVED
+
+    store.list_active.return_value = ["INC-TEST-001"]
+    store.load.return_value = resolved_ctx
+
+    config = RespondConfig(approval_timeout_seconds=300)
+    server = ApprovalServer(mock_coord, store, config)
+
+    await server.recover_pending_approvals()
+
+    mock_coord.reject.assert_not_called()
+    assert "INC-TEST-001" not in server._timeouts
+
+
+# --- Concurrent approve+timeout test ---
+
+
+async def test_concurrent_approve_and_timeout_no_double_action():
+    """Lock prevents concurrent approve and timeout from both executing."""
+    mock_coord = AsyncMock()
+    store = MagicMock()
+
+    ctx = _awaiting_context()
+    resolved_ctx = _awaiting_context()
+    resolved_ctx.state = IncidentState.RESOLVED
+
+    # First call succeeds (approve), second call sees RESOLVED state
+    call_count = {"n": 0}
+    original_ctx = ctx
+
+    def load_side_effect(incident_id):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return original_ctx  # First load: still AWAITING_APPROVAL
+        return resolved_ctx  # Second load: already resolved
+
+    store.load.side_effect = load_side_effect
+    mock_coord.approve = AsyncMock(return_value=resolved_ctx)
+
+    config = RespondConfig(approval_timeout_seconds=0)
+    server = ApprovalServer(mock_coord, store, config)
+
+    # Start timeout (fires immediately with 0s delay)
+    server.start_timeout("INC-TEST-001")
+
+    # Approve via the lock - this should win the race
+    async with server._get_lock("INC-TEST-001"):
+        await server._coordinator.approve("INC-TEST-001", approved_by="rob")
+        server.cancel_timeout("INC-TEST-001")
+
+    await asyncio.sleep(0.1)
+
+    # Coordinator approve was called but reject should NOT have been called
+    # (timeout task either got cancelled or saw non-AWAITING state)
+    mock_coord.reject.assert_not_called()

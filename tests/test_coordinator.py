@@ -95,7 +95,7 @@ def context_store(tmp_path):
 
 @pytest.fixture
 def make_coordinator(context_store, verdict_store):
-    def _make(agent_overrides=None):
+    def _make(agent_overrides=None, safe_action_registry=None):
         agents = {
             AgentRole.TRIAGE: make_mock_agent(AgentRole.TRIAGE),
             AgentRole.INVESTIGATION: make_mock_agent(AgentRole.INVESTIGATION),
@@ -108,7 +108,10 @@ def make_coordinator(context_store, verdict_store):
         config = MagicMock()
         config.escalation_threshold = 0.3
 
-        return Coordinator(agents, context_store, verdict_store, config)
+        return Coordinator(
+            agents, context_store, verdict_store, config,
+            safe_action_registry=safe_action_registry,
+        )
 
     return _make
 
@@ -419,14 +422,15 @@ async def test_approve_executes_safe_action(
     approval_agent = make_mock_agent(
         AgentRole.REMEDIATION, side_effect=remediation_needs_approval
     )
-    # Give the remediation agent a mock registry
     mock_registry = AsyncMock()
     mock_registry.execute = AsyncMock(
         return_value={"success": True, "detail": "rolled back"}
     )
-    approval_agent._registry = mock_registry
 
-    coord = make_coordinator({AgentRole.REMEDIATION: approval_agent})
+    coord = make_coordinator(
+        {AgentRole.REMEDIATION: approval_agent},
+        safe_action_registry=mock_registry,
+    )
     result = await coord.run(triggered_context)
     assert result.state == IncidentState.AWAITING_APPROVAL
 
@@ -455,9 +459,11 @@ async def test_approve_failure_escalates(
     )
     mock_registry = AsyncMock()
     mock_registry.execute = AsyncMock(side_effect=RuntimeError("cooldown active"))
-    approval_agent._registry = mock_registry
 
-    coord = make_coordinator({AgentRole.REMEDIATION: approval_agent})
+    coord = make_coordinator(
+        {AgentRole.REMEDIATION: approval_agent},
+        safe_action_registry=mock_registry,
+    )
     await coord.run(triggered_context)
 
     result = await coord.approve("INC-2026-0001")
@@ -551,9 +557,11 @@ async def test_approve_records_approved_by(
     mock_registry.execute = AsyncMock(
         return_value={"success": True, "detail": "rolled back"}
     )
-    approval_agent._registry = mock_registry
 
-    coord = make_coordinator({AgentRole.REMEDIATION: approval_agent})
+    coord = make_coordinator(
+        {AgentRole.REMEDIATION: approval_agent},
+        safe_action_registry=mock_registry,
+    )
     await coord.run(triggered_context)
 
     result = await coord.approve("INC-2026-0001", approved_by="rob@nthlayer.com")

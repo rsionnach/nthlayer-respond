@@ -56,11 +56,13 @@ class Coordinator:
         context_store: Any,
         verdict_store: Any,
         config: Any,
+        safe_action_registry: Any | None = None,
     ) -> None:
         self._agents = agents
         self._context_store = context_store
         self._verdict_store = verdict_store
         self._config = config
+        self._registry = safe_action_registry
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
@@ -120,8 +122,11 @@ class Coordinator:
         action = remediation.proposed_action
         target = remediation.target
 
-        # Access the registry from the remediation agent
-        registry = self._agents[AgentRole.REMEDIATION]._registry
+        if self._registry is None:
+            raise ValueError(
+                f"Incident {incident_id!r}: no safe action registry configured on coordinator"
+            )
+        registry = self._registry
 
         who = approved_by or "human"
         from nthlayer_learn import create as verdict_create

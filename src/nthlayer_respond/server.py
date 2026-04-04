@@ -6,9 +6,11 @@ Slack interaction callbacks. Embedded in `nthlayer-respond serve`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time as _time
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import Any
 
@@ -45,6 +47,12 @@ class ApprovalServer:
             self._locks[incident_id] = asyncio.Lock()
         return self._locks[incident_id]
 
+    @contextlib.asynccontextmanager
+    async def _lifespan(self, app: Starlette) -> AsyncGenerator[None, None]:
+        """Recover pending approval timeouts on startup."""
+        await self.recover_pending_approvals()
+        yield
+
     def build_app(self) -> Starlette:
         """Build the Starlette ASGI application."""
         routes = [
@@ -69,7 +77,7 @@ class ApprovalServer:
                 methods=["POST"],
             ),
         ]
-        return Starlette(routes=routes)
+        return Starlette(routes=routes, lifespan=self._lifespan)
 
     async def handle_approve(self, request: Request) -> JSONResponse:
         """POST /api/v1/incidents/{id}/approve"""

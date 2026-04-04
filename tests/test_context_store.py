@@ -1,7 +1,16 @@
 """Tests for context store."""
 import pytest
 from nthlayer_respond.context_store import SQLiteContextStore
-from nthlayer_respond.types import IncidentContext, IncidentState, TriageResult
+from nthlayer_respond.types import (
+    CommunicationResult,
+    CommunicationUpdate,
+    Hypothesis,
+    IncidentContext,
+    IncidentState,
+    InvestigationResult,
+    RemediationResult,
+    TriageResult,
+)
 
 
 @pytest.fixture
@@ -100,3 +109,43 @@ def test_set_metadata_overwrites(store):
     store.set_metadata("key", "value1")
     store.set_metadata("key", "value2")
     assert store.get_metadata("key") == "value2"
+
+
+def test_round_trip_preserves_confidence(store):
+    """confidence fields on InvestigationResult and CommunicationResult survive round-trip."""
+    ctx = make_context()
+    ctx.investigation = InvestigationResult(
+        hypotheses=[Hypothesis("deploy broke it", 0.87, ["evidence"], "v2.3")],
+        root_cause="deploy v2.3",
+        root_cause_confidence=0.87,
+        reasoning="test",
+        confidence=0.92,
+    )
+    ctx.communication = CommunicationResult(
+        updates_sent=[
+            CommunicationUpdate("slack", "2026-04-04T10:00:00Z", "initial", "test")
+        ],
+        reasoning="test",
+        confidence=0.85,
+    )
+    ctx.remediation = RemediationResult(
+        proposed_action="rollback",
+        target="payment-api",
+        reasoning="test",
+        confidence=0.78,
+    )
+    ctx.triage = TriageResult(
+        severity=1,
+        blast_radius=["payment-api"],
+        affected_slos=["availability"],
+        assigned_team="payments",
+        reasoning="test",
+        confidence=0.95,
+    )
+    store.save(ctx)
+    loaded = store.load("INC-2026-0001")
+
+    assert loaded.investigation.confidence == 0.92
+    assert loaded.communication.confidence == 0.85
+    assert loaded.remediation.confidence == 0.78
+    assert loaded.triage.confidence == 0.95

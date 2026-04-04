@@ -44,7 +44,7 @@ def _make_coordinator(config: RespondConfig) -> tuple[Coordinator, SQLiteContext
         AgentRole.COMMUNICATION: CommunicationAgent(config.model, config.max_tokens, verdict_store, agent_config),
         AgentRole.REMEDIATION: RemediationAgent(config.model, config.max_tokens, verdict_store, agent_config, safe_action_registry=registry),
     }
-    return Coordinator(agents, store, verdict_store, config), store
+    return Coordinator(agents, store, verdict_store, config, safe_action_registry=registry), store
 
 
 # ------------------------------------------------------------------ #
@@ -369,6 +369,7 @@ async def replay_command(
         context_store=context_store,
         verdict_store=verdict_store,
         config=config,
+        safe_action_registry=registry,
     )
 
     # Handle crash_after_step for crash-recovery scenarios.
@@ -478,10 +479,6 @@ def _serve_command(config_path: str, host: str | None = None, port: int | None =
 
     server = ApprovalServer(coordinator, ctx_store, config)
     app = server.build_app()
-
-    @app.on_event("startup")
-    async def startup():
-        await server.recover_pending_approvals()
 
     print(f"[nthlayer-respond serve] Starting on {config.server_host}:{config.server_port}")
     uvicorn.run(
