@@ -124,14 +124,12 @@ class Coordinator:
         registry = self._agents[AgentRole.REMEDIATION]._registry
 
         who = approved_by or "human"
+        from nthlayer_learn import create as verdict_create
 
         try:
             exec_result = await registry.execute(action, target, context)
             remediation.executed = True
             remediation.execution_result = exec_result.get("detail", "")
-
-            # Emit confirmation verdict
-            from nthlayer_learn import create as verdict_create
 
             v = verdict_create(
                 subject={
@@ -156,8 +154,6 @@ class Coordinator:
 
         except Exception as exc:  # noqa: BLE001
             logger.error("approve_execution_failed", error=str(exc))
-
-            from nthlayer_learn import create as verdict_create
 
             v = verdict_create(
                 subject={

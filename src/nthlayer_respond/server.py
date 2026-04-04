@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time as _time
+from datetime import datetime, timezone
 from typing import Any
 
 from starlette.applications import Starlette
@@ -15,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from nthlayer_common.slack_web import SlackWebClient
 from nthlayer_respond.config import RespondConfig
 from nthlayer_respond.types import IncidentState
 
@@ -166,8 +169,6 @@ class ApprovalServer:
         timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
         signature = request.headers.get("X-Slack-Signature", "")
 
-        from nthlayer_common.slack_web import SlackWebClient
-
         if not SlackWebClient.verify_signature(signing_secret, timestamp, body, signature):
             return Response(status_code=401)
 
@@ -228,8 +229,6 @@ class ApprovalServer:
         ctx: Any,
     ) -> None:
         """Replace buttons with confirmation text in the original Slack message."""
-        from nthlayer_common.slack_web import SlackWebClient
-
         client = SlackWebClient(self._config.slack_bot_token)
 
         if action_id == "approve":
@@ -261,10 +260,14 @@ class ApprovalServer:
         if task and not task.done():
             task.cancel()
 
-    async def _timeout_task(self, incident_id: str) -> None:
-        """Wait for timeout, then auto-reject if still awaiting approval."""
+    async def _timeout_task(self, incident_id: str, delay: float | None = None) -> None:
+        """Wait for delay seconds, then auto-reject if still awaiting approval.
+
+        If delay is None, uses approval_timeout_seconds from config.
+        """
+        wait = delay if delay is not None else self._config.approval_timeout_seconds
         try:
-            await asyncio.sleep(self._config.approval_timeout_seconds)
+            await asyncio.sleep(wait)
         except asyncio.CancelledError:
             return
 
@@ -286,9 +289,6 @@ class ApprovalServer:
 
     async def recover_pending_approvals(self) -> None:
         """On startup, scan for AWAITING_APPROVAL incidents and start timeouts."""
-        import time as _time
-        from datetime import datetime, timezone
-
         active = self._context_store.list_active()
         for incident_id in active:
             ctx = self._context_store.load(incident_id)
@@ -313,27 +313,5 @@ class ApprovalServer:
                     logger.warning("Timeout recovery reject failed: %s", exc)
             else:
                 self.cancel_timeout(incident_id)
-                task = asyncio.create_task(self._timeout_with_delay(incident_id, remaining))
+                task = asyncio.create_task(self._timeout_task(incident_id, delay=remaining))
                 self._timeouts[incident_id] = task
-
-    async def _timeout_with_delay(self, incident_id: str, delay: float) -> None:
-        """Like _timeout_task but with a custom delay (for recovery)."""
-        try:
-            await asyncio.sleep(delay)
-        except asyncio.CancelledError:
-            return
-
-        ctx = self._context_store.load(incident_id)
-        if ctx is None or ctx.state != IncidentState.AWAITING_APPROVAL:
-            return
-
-        try:
-            await self._coordinator.reject(
-                incident_id,
-                f"Approval timed out after {self._config.approval_timeout_seconds}s",
-                rejected_by="system/timeout",
-            )
-        except Exception as exc:
-            logger.warning("Timeout reject failed: %s", exc)
-        finally:
-            self._timeouts.pop(incident_id, None)

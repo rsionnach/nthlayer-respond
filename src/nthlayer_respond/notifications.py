@@ -17,7 +17,7 @@ def build_triage_blocks(verdict, context=None) -> tuple[list[dict], str]:
     text = f"\U0001f6a8 {first_sentence}"
 
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*\U0001f6a8 INCIDENT OPENED*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*\U0001f6a8 INCIDENT OPENED*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": first_sentence}},
         {"type": "context", "elements": [
             {"type": "mrkdwn", "text": f"nthlayer-respond \u00b7 confidence {confidence:.2f} \u00b7 {verdict.id}"},
@@ -35,7 +35,7 @@ def build_remediation_blocks(verdict, context=None) -> tuple[list[dict], str]:
     text = f"\U0001f527 {first_sentence}"
 
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*\U0001f527 REMEDIATION*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*\U0001f527 REMEDIATION*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": first_sentence}},
         {"type": "context", "elements": [
             {"type": "mrkdwn", "text": f"nthlayer-respond \u00b7 confidence {confidence:.2f} \u00b7 {verdict.id}"},
@@ -155,7 +155,8 @@ def resolve_slack_channel(context, env_fallback: str | None = None) -> str | Non
 
     Resolution order:
     1. Manifest metadata.service_context.spec.ownership.slack_channel
-    2. SLACK_CHANNEL_ID env var (or env_fallback if provided)
+    2. SLACK_CHANNEL_ID env var — or env_fallback if provided (empty string
+       suppresses env var lookup and returns None)
     3. None (no channel configured)
     """
     service_ctx = context.metadata.get("service_context", {}) if isinstance(context.metadata, dict) else {}

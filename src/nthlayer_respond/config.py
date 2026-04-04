@@ -2,15 +2,13 @@
 """nthlayer-respond configuration."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import structlog
 import yaml
 
 logger = structlog.get_logger()
-
-
-import os
 
 
 @dataclass
