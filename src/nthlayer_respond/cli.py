@@ -477,7 +477,8 @@ def _serve_command(config_path: str, host: str | None = None, port: int | None =
 
     from nthlayer_respond.server import ApprovalServer
 
-    server = ApprovalServer(coordinator, ctx_store, config)
+    verdict_store = SQLiteVerdictStore(config.verdict_store_path)
+    server = ApprovalServer(coordinator, ctx_store, config, verdict_store=verdict_store)
     app = server.build_app()
 
     print(f"[nthlayer-respond serve] Starting on {config.server_host}:{config.server_port}")

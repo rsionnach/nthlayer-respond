@@ -42,7 +42,9 @@ def config():
 
 @pytest.fixture
 def server(mock_coordinator, context_store, config):
-    return ApprovalServer(mock_coordinator, context_store, config)
+    from nthlayer_learn import MemoryStore
+    verdict_store = MemoryStore()
+    return ApprovalServer(mock_coordinator, context_store, config, verdict_store=verdict_store)
 
 
 @pytest.fixture
@@ -199,7 +201,9 @@ def config_with_slack():
 
 @pytest.fixture
 def server_with_slack(mock_coordinator, context_store, config_with_slack):
-    return ApprovalServer(mock_coordinator, context_store, config_with_slack)
+    from nthlayer_learn import MemoryStore
+    verdict_store = MemoryStore()
+    return ApprovalServer(mock_coordinator, context_store, config_with_slack, verdict_store=verdict_store)
 
 
 @pytest.fixture
@@ -470,6 +474,14 @@ async def test_recover_pending_approvals_skips_non_awaiting():
 
     mock_coord.reject.assert_not_called()
     assert "INC-TEST-001" not in server._timeouts
+
+
+def test_metrics_endpoint(client, context_store):
+    """GET /metrics returns Prometheus text with HELP headers."""
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert "text/plain" in resp.headers["content-type"]
+    assert "# " in resp.text  # Has comment/HELP headers
 
 
 # --- Concurrent approve+timeout test ---

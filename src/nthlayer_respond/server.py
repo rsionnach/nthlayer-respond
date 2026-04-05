@@ -21,6 +21,7 @@ from starlette.routing import Route
 
 from nthlayer_common.slack_web import SlackWebClient
 from nthlayer_respond.config import RespondConfig
+from nthlayer_respond.metrics import VerdictMetricsCollector
 from nthlayer_respond.types import IncidentState
 
 logger = logging.getLogger(__name__)
@@ -34,12 +35,14 @@ class ApprovalServer:
         coordinator: Any,
         context_store: Any,
         config: RespondConfig,
+        verdict_store: Any = None,
     ) -> None:
         self._coordinator = coordinator
         self._context_store = context_store
         self._config = config
         self._timeouts: dict[str, asyncio.Task] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._metrics = VerdictMetricsCollector(verdict_store) if verdict_store else None
 
     def _get_lock(self, incident_id: str) -> asyncio.Lock:
         """Get or create a per-incident lock to serialize approve/reject/timeout."""
@@ -76,6 +79,7 @@ class ApprovalServer:
                 self.handle_slack_interaction,
                 methods=["POST"],
             ),
+            Route("/metrics", self.handle_metrics, methods=["GET"]),
         ]
         return Starlette(routes=routes, lifespan=self._lifespan)
 
@@ -243,6 +247,16 @@ class ApprovalServer:
             )
 
         return Response(status_code=200)
+
+    async def handle_metrics(self, request: Request) -> Response:
+        """GET /metrics — Prometheus text exposition."""
+        if self._metrics is None:
+            return Response(content="", media_type="text/plain")
+        text = self._metrics.collect()
+        return Response(
+            content=text,
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     async def _update_slack_message(
         self,
