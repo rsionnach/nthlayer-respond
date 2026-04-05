@@ -100,3 +100,36 @@ def test_resolve_slack_channel_returns_none():
     context = MagicMock()
     context.metadata = {}
     assert resolve_slack_channel(context, env_fallback="") is None
+
+
+def test_resolve_slack_channel_from_notifications_section():
+    """resolve_slack_channel reads from spec.notifications.slack.channel_id first."""
+    from nthlayer_respond.notifications import resolve_slack_channel
+
+    context = MagicMock()
+    context.metadata = {
+        "service_context": {
+            "spec": {
+                "notifications": {
+                    "slack": {"channel_id": "C-FROM-NOTIFICATIONS"},
+                },
+                "ownership": {"slack_channel": "C-FROM-OWNERSHIP"},
+            }
+        }
+    }
+    assert resolve_slack_channel(context) == "C-FROM-NOTIFICATIONS"
+
+
+def test_resolve_slack_channel_falls_back_to_ownership():
+    """resolve_slack_channel falls back to ownership.slack_channel when no notifications section."""
+    from nthlayer_respond.notifications import resolve_slack_channel
+
+    context = MagicMock()
+    context.metadata = {
+        "service_context": {
+            "spec": {
+                "ownership": {"slack_channel": "C-FROM-OWNERSHIP"},
+            }
+        }
+    }
+    assert resolve_slack_channel(context) == "C-FROM-OWNERSHIP"

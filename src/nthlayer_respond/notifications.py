@@ -181,21 +181,32 @@ def should_notify(context, event_type: str, severity: int | None = None) -> bool
 
 
 def resolve_slack_channel(context, env_fallback: str | None = None) -> str | None:
-    """Resolve Slack channel ID from service manifest or env var.
+    """Resolve Slack channel ID from manifest or env var.
 
     Resolution order:
-    1. Manifest metadata.service_context.spec.ownership.slack_channel
-    2. SLACK_CHANNEL_ID env var — or env_fallback if provided (empty string
+    1. spec.notifications.slack.channel_id
+    2. spec.ownership.slack_channel (backward compat)
+    3. SLACK_CHANNEL_ID env var — or env_fallback if provided (empty string
        suppresses env var lookup and returns None)
-    3. None (no channel configured)
+    4. None (no channel configured)
     """
     service_ctx = context.metadata.get("service_context", {}) if isinstance(context.metadata, dict) else {}
     spec = service_ctx.get("spec", {})
+
+    # 1. notifications.slack.channel_id
+    notifications = spec.get("notifications", {})
+    slack_config = notifications.get("slack", {})
+    channel = slack_config.get("channel_id")
+    if channel:
+        return channel
+
+    # 2. ownership.slack_channel (backward compat)
     ownership = spec.get("ownership", {})
     channel = ownership.get("slack_channel")
     if channel:
         return channel
 
+    # 3. Env var fallback
     if env_fallback is not None:
         return env_fallback or None
     return os.environ.get("SLACK_CHANNEL_ID") or None
