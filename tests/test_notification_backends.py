@@ -1,6 +1,5 @@
 """Tests for notification backends (stdout, Slack, ntfy)."""
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

@@ -1,7 +1,7 @@
 """Tests for escalation runner — async loop driving the state machine."""
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -15,7 +15,6 @@ from nthlayer_respond.oncall.escalation import (
     EscalationStep,
 )
 from nthlayer_respond.oncall.runner import EscalationRunner
-from nthlayer_respond.oncall.schedule import RosterMember
 
 
 def _make_payload(**overrides) -> NotificationPayload:

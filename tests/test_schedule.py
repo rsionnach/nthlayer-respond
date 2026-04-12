@@ -1,6 +1,6 @@
 """Tests for on-call schedule resolver — pure function, no state."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pytest

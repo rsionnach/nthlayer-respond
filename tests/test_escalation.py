@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from nthlayer_respond.oncall.escalation import (
     EscalationState,

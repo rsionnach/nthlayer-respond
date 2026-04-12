@@ -15,9 +15,7 @@ from typing import Any
 import structlog
 
 from nthlayer_respond.notification_backends.protocol import (
-    NotificationBackend,
     NotificationPayload,
-    NotificationResult,
 )
 from nthlayer_respond.oncall.escalation import (
     EscalationState,

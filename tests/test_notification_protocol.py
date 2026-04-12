@@ -7,7 +7,6 @@ from nthlayer_respond.notification_backends.protocol import (
     NotificationPayload,
     NotificationResult,
 )
-from nthlayer_respond.oncall.schedule import RosterMember
 
 
 class TestNotificationPayload:

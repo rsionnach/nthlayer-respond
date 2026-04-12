@@ -4,13 +4,12 @@ Verifies that the coordinator fires the escalation runner as a
 background task after triage (step 0) completes.
 """
 
-from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from nthlayer_respond.coordinator import Coordinator
-from nthlayer_respond.oncall.escalation import EscalationState, EscalationStatus, EscalationStep
+from nthlayer_respond.oncall.escalation import EscalationState
 from nthlayer_respond.oncall.runner import EscalationRunner
 from nthlayer_respond.types import (
     AgentRole,
