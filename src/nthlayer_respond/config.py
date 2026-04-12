@@ -40,6 +40,14 @@ class RespondConfig:
     # Slack (interactive buttons)
     slack_signing_secret: str = ""
     slack_bot_token: str = ""
+    # Notification backends (on-call escalation)
+    ntfy_server_url: str = ""
+    ntfy_auth_token: str = ""
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""
+    pagerduty_routing_key: str = ""
+    webhook_base_url: str = "http://localhost:8090"
 
 
 def load_config(path: str) -> RespondConfig:
@@ -60,6 +68,7 @@ def load_config(path: str) -> RespondConfig:
     server = data.get("server", {})
     approval = data.get("approval", {})
     slack = data.get("slack", {})
+    notifications = data.get("notifications", {})
 
     poll_interval = coord.get("poll_interval_seconds", 30)
     escalation_thresh = coord.get("escalation_threshold", 0.3)
@@ -88,4 +97,11 @@ def load_config(path: str) -> RespondConfig:
         approval_timeout_seconds=int(approval.get("timeout_seconds", 900)),
         slack_signing_secret=slack.get("signing_secret", ""),
         slack_bot_token=slack.get("bot_token", ""),
+        ntfy_server_url=notifications.get("ntfy", {}).get("server_url", ""),
+        ntfy_auth_token=notifications.get("ntfy", {}).get("auth_token", ""),
+        twilio_account_sid=notifications.get("twilio", {}).get("account_sid", ""),
+        twilio_auth_token=notifications.get("twilio", {}).get("auth_token", ""),
+        twilio_from_number=notifications.get("twilio", {}).get("from_number", ""),
+        pagerduty_routing_key=notifications.get("pagerduty", {}).get("routing_key", ""),
+        webhook_base_url=notifications.get("webhook", {}).get("public_url", "http://localhost:8090"),
     )

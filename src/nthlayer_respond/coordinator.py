@@ -8,7 +8,7 @@ on escalation / human approval.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import structlog
@@ -57,12 +57,14 @@ class Coordinator:
         verdict_store: Any,
         config: Any,
         safe_action_registry: Any | None = None,
+        escalation_runner: Any | None = None,
     ) -> None:
         self._agents = agents
         self._context_store = context_store
         self._verdict_store = verdict_store
         self._config = config
         self._registry = safe_action_registry
+        self._escalation_runner = escalation_runner
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
@@ -276,6 +278,10 @@ class Coordinator:
             context.last_completed_step_index = step_index
             self._context_store.save(context)
 
+            # After triage (step 0): fire on-call escalation if configured
+            if step_index == 0 and self._escalation_runner is not None:
+                await self._maybe_start_escalation(context)
+
             # Gate: escalation check
             if self._check_escalation(context):
                 context.state = IncidentState.ESCALATED
@@ -334,6 +340,85 @@ class Coordinator:
                         error=str(result),
                         incident=context.id,
                     )
+
+    # ------------------------------------------------------------------ #
+    # On-call escalation                                                   #
+    # ------------------------------------------------------------------ #
+
+    async def _maybe_start_escalation(self, context: IncidentContext) -> None:
+        """Fire the escalation runner if the manifest has an oncall config.
+
+        Fail-open: escalation failure never blocks the incident pipeline.
+        """
+        from nthlayer_respond.notification_backends.protocol import NotificationPayload
+        from nthlayer_respond.oncall.escalation import EscalationStep
+
+        try:
+            svc_ctx = context.metadata.get("service_context", {})
+            oncall = (
+                svc_ctx.get("spec", {})
+                .get("ownership", {})
+                .get("oncall")
+            )
+            if not oncall:
+                return
+
+            # Parse escalation steps from manifest config
+            raw_steps = oncall.get("escalation", [])
+            if not raw_steps:
+                return
+
+            steps = []
+            for raw in raw_steps:
+                after_str = raw["after"]
+                if not after_str.endswith("m") or not after_str[:-1].isdigit():
+                    logger.warning(
+                        "escalation_step_invalid_after",
+                        after=after_str,
+                        incident_id=context.id,
+                    )
+                    continue
+                minutes = int(after_str[:-1])
+                steps.append(
+                    EscalationStep(
+                        after=timedelta(minutes=minutes),
+                        notify=raw["notify"],
+                        target=raw.get("target"),
+                        phone=raw.get("phone"),
+                    )
+                )
+
+            severity = getattr(context.triage, "severity", 3) if context.triage else 3
+            title = context.triage.reasoning[:80] if context.triage and context.triage.reasoning else context.id
+
+            payload = NotificationPayload(
+                incident_id=context.id,
+                severity=severity,
+                title=title,
+                summary=context.triage.reasoning if context.triage else "Incident triggered",
+                root_cause=None,
+                blast_radius=list(context.triage.blast_radius) if context.triage else [],
+                actions_url=None,
+                escalation_step=0,
+                requires_ack=True,
+            )
+
+            await self._escalation_runner.start_escalation(
+                incident_id=context.id,
+                payload=payload,
+                steps=steps,
+            )
+            logger.info(
+                "escalation_triggered",
+                incident_id=context.id,
+                steps=len(steps),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "escalation_start_failed",
+                incident_id=context.id,
+                error=str(exc),
+            )
 
     # ------------------------------------------------------------------ #
     # Gates                                                                #
