@@ -107,6 +107,44 @@ def build_parser() -> argparse.ArgumentParser:
     respond.add_argument("--notify", default="stdout", help="Notification target: stdout or webhook URL")
     respond.add_argument("--model", default=None, help="Override model (e.g. 'openai/gpt-4o', 'anthropic/claude-sonnet-4-20250514')")
 
+    # ---- SRE experience commands ----
+
+    # oncall
+    oncall = sub.add_parser("oncall", help="Show current on-call schedule")
+    oncall.add_argument("--specs-dir", default=".", help="Directory of OpenSRM spec YAMLs")
+
+    # brief
+    brief = sub.add_parser("brief", help="Generate paging brief for an incident")
+    brief.add_argument("incident_id", help="Incident ID")
+    brief.add_argument("--verdict-store", default="verdicts.db", help="Path to verdict SQLite DB")
+
+    # shift-report
+    shift = sub.add_parser("shift-report", help="Generate shift report for a time window")
+    shift.add_argument("--from", dest="from_time", required=True, help="Shift start (ISO 8601)")
+    shift.add_argument("--to", required=True, help="Shift end (ISO 8601)")
+    shift.add_argument("--verdict-store", default="verdicts.db", help="Path to verdict SQLite DB")
+
+    # suppress
+    suppress = sub.add_parser("suppress", help="Create alert suppression rule")
+    suppress.add_argument("service", help="Service name")
+    suppress.add_argument("metric", help="Metric name")
+    suppress.add_argument("--window", required=True, help="Suppression window (e.g. 02:00-04:00)")
+    suppress.add_argument("--reason", required=True, help="Reason for suppression")
+    suppress.add_argument("--baseline", type=float, default=None, help="Baseline value (auto-computed if omitted)")
+    suppress.add_argument("--multiplier", type=float, default=3.0, help="Override threshold multiplier (default: 3.0)")
+
+    # post-incident
+    postinc = sub.add_parser("post-incident", help="Generate post-incident review")
+    postinc.add_argument("incident_id", help="Incident ID")
+    postinc.add_argument("--verdict-store", default="verdicts.db", help="Path to verdict SQLite DB")
+
+    # delegate
+    delegate = sub.add_parser("delegate", help="Delegate incident to autonomous handling")
+    delegate.add_argument("incident_id", help="Incident ID")
+    delegate.add_argument("--safe-actions-only", action="store_true", default=True, help="Restrict to pre-approved safe actions (default)")
+    delegate.add_argument("--max-duration", default="2h", help="Max autonomous duration (default: 2h)")
+    delegate.add_argument("--delegated-by", default=None, help="Identity of delegator")
+
     return parser
 
 
